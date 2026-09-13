@@ -1,16 +1,39 @@
-import type { InventoryPart, ServiceDeskState, UserRole, WorkItem, WorkItemDraft } from '../types';
+import type { AuthResponse, AuthUser, InventoryPart, ServiceDeskState, UserRole, WorkItem, WorkItemDraft } from '../types';
 
 const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
 const shouldUseApi = configuredBaseUrl !== undefined && configuredBaseUrl !== '' ? true : import.meta.env.PROD;
 const apiBaseUrl = configuredBaseUrl ?? '';
+const AUTH_TOKEN_KEY = 'service-desk-auth-token-v1';
+const AUTH_USER_KEY = 'service-desk-auth-user-v1';
 
 export const isApiPersistenceEnabled = shouldUseApi;
 
-async function requestState(path: string, init?: RequestInit): Promise<ServiceDeskState> {
+export function getStoredAuthUser(): AuthUser | null {
+  const raw = localStorage.getItem(AUTH_USER_KEY);
+  return raw ? (JSON.parse(raw) as AuthUser) : null;
+}
+
+export function getStoredAuthToken() {
+  return localStorage.getItem(AUTH_TOKEN_KEY);
+}
+
+export function storeAuthSession(auth: AuthResponse) {
+  localStorage.setItem(AUTH_TOKEN_KEY, auth.token);
+  localStorage.setItem(AUTH_USER_KEY, JSON.stringify(auth.user));
+}
+
+export function clearAuthSession() {
+  localStorage.removeItem(AUTH_TOKEN_KEY);
+  localStorage.removeItem(AUTH_USER_KEY);
+}
+
+async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = getStoredAuthToken();
   const response = await fetch(`${apiBaseUrl}${path}`, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...init?.headers,
     },
   });
@@ -20,8 +43,16 @@ async function requestState(path: string, init?: RequestInit): Promise<ServiceDe
     throw new Error(`ServiceDesk API request failed (${response.status}): ${details}`);
   }
 
-  return response.json() as Promise<ServiceDeskState>;
+  return response.json() as Promise<T>;
 }
+
+const requestState = (path: string, init?: RequestInit) => requestJson<ServiceDeskState>(path, init);
+
+export const authApi = {
+  login: (email: string, password: string) => requestJson<AuthResponse>('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
+  me: () => requestJson<{ user: AuthUser }>('/api/auth/me'),
+  logout: () => requestJson<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
+};
 
 export const serviceDeskApi = {
   getState: () => requestState('/api/state'),

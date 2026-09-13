@@ -1,17 +1,17 @@
-import type { UserRole } from '../types';
+import type { ModuleId } from '../types';
 
-const roleMap: Record<string, UserRole> = {
-  agent: 'Agent',
-  technician: 'Technician',
-  customer: 'Customer',
+const moduleMap: Record<string, ModuleId> = {
+  agent: 'agent',
+  technician: 'technician',
+  customer: 'customer',
 };
 
-export const normalizeRole = (role: string | null): UserRole | null => {
-  if (!role) {
+export const normalizeModule = (moduleId: string | null): ModuleId | null => {
+  if (!moduleId) {
     return null;
   }
 
-  return roleMap[role.toLowerCase()] ?? null;
+  return moduleMap[moduleId.toLowerCase()] ?? null;
 };
 
 export const getOrCreateSessionId = () => {
@@ -25,16 +25,16 @@ export const getOrCreateSessionId = () => {
   return generatedId;
 };
 
-export const getInitialRoleFromUrl = (): UserRole | null => {
+export const getInitialModuleFromUrl = (): ModuleId | null => {
   const [, route] = window.location.pathname.split('/');
   if (route !== 'app') {
     return null;
   }
 
-  return normalizeRole(new URLSearchParams(window.location.search).get('role'));
+  return normalizeModule(new URLSearchParams(window.location.search).get('module'));
 };
 
-export const updateUrlForRole = (sessionId: string, role: UserRole | null) => {
-  const url = role ? `/app/${sessionId}?role=${role.toLowerCase()}` : `/login/${sessionId}`;
+export const updateUrlForModule = (sessionId: string, moduleId: ModuleId | null) => {
+  const url = moduleId ? `/app/${sessionId}?module=${moduleId}` : `/login/${sessionId}`;
   window.history.pushState({}, '', url);
 };

@@ -2,7 +2,11 @@ export type DeviceType = 'Laptop' | 'Desktop' | 'Mobile' | 'Tablet' | 'Console' 
 
 export type Priority = 'Low' | 'Normal' | 'High' | 'Urgent';
 
-export type UserRole = 'Agent' | 'Technician' | 'Customer';
+export type UserRole = 'Admin' | 'Agent' | 'Technician' | 'Customer';
+
+export type AuthProfile = 'admin' | 'agent' | 'technician' | 'customer';
+
+export type ModuleId = 'agent' | 'technician' | 'customer';
 
 export type RequestSource = 'Online' | 'Walk-in';
 
@@ -104,7 +108,21 @@ export interface ServiceDeskState {
   inventoryParts: InventoryPart[];
 }
 
+export interface AuthUser {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  profile: AuthProfile;
+  moduleAccess: ModuleId[];
+}
+
+export interface AuthResponse {
+  token: string;
+  user: AuthUser;
+}
+
 export interface LoginSession {
   sessionId: string;
-  role: UserRole | null;
+  user: AuthUser | null;
 }

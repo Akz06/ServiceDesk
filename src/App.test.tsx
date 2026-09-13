@@ -9,14 +9,35 @@ beforeEach(() => {
   vi.spyOn(window.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000123');
 });
 
-describe('App workflow', () => {
-  it('logs into agent view and creates a work item', async () => {
-    const user = userEvent.setup();
-    render(<App />);
+async function loginAs(email: string, password: string) {
+  const user = userEvent.setup();
+  render(<App />);
+  await user.clear(screen.getByLabelText(/email/i));
+  await user.type(screen.getByLabelText(/email/i), email);
+  await user.clear(screen.getByLabelText(/password/i));
+  await user.type(screen.getByLabelText(/password/i), password);
+  await user.click(screen.getByRole('button', { name: /login securely/i }));
+  return user;
+}
 
-    await user.click(screen.getByRole('button', { name: /agent/i }));
+describe('App workflow', () => {
+  it('shows homepage and logs admin into all modules', async () => {
+    const user = await loginAs('admin@servicedesk.local', 'Admin@12345');
+
     expect(window.location.pathname).toBe('/app/test-session-123');
+    expect(screen.getByRole('button', { name: /agent module/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /technician module/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /customer module/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /technician module/i }));
+    expect(screen.getByRole('heading', { name: /analysis, estimates, and repair updates/i })).toBeInTheDocument();
+  });
+
+  it('logs into agent module and creates a work item', async () => {
+    const user = await loginAs('agent@servicedesk.local', 'Agent@12345');
+
     expect(screen.getByRole('heading', { name: /create a work item/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /technician module/i })).not.toBeInTheDocument();
 
     await user.type(screen.getByLabelText(/customer name/i), 'Asha Rao');
     await user.type(screen.getByLabelText(/^phone/i), '+1 555 0444');
@@ -30,10 +51,8 @@ describe('App workflow', () => {
   });
 
   it('lets customer approve an estimate', async () => {
-    const user = userEvent.setup();
-    render(<App />);
+    const user = await loginAs('customer@servicedesk.local', 'Customer@12345');
 
-    await user.click(screen.getByRole('button', { name: /customer/i }));
     await user.selectOptions(screen.getByLabelText(/customer/i), 'CUST-2003');
     await user.click(screen.getByRole('button', { name: /approve estimate/i }));
 
@@ -42,10 +61,8 @@ describe('App workflow', () => {
   });
 
   it('lets technician update repair status', async () => {
-    const user = userEvent.setup();
-    render(<App />);
+    const user = await loginAs('tech@servicedesk.local', 'Tech@12345');
 
-    await user.click(screen.getByRole('button', { name: /technician/i }));
     const card = screen.getByText('Dell XPS 13').closest('.ticket-card');
     expect(card).not.toBeNull();
 
