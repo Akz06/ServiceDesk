@@ -12,6 +12,27 @@ The application now uses a **Zoho Creator-like layout**: a public homepage, logi
 - Auth: PostgreSQL users and sessions, `scrypt` password hashing, bearer session tokens
 - Deployment: Railway single web service serving API and built frontend
 
+## UI/UX Design Review and Improvements
+
+The current UI was reviewed from a product-design perspective and updated to feel more like a usable business application instead of an oversized dashboard.
+
+Implemented improvements:
+
+- Reduced the overall type scale for headings, KPI numbers, forms, buttons, and record cards.
+- Replaced hard-coded colors with design tokens in `src/styles.css`.
+- Added light/dark mode support with a visible toggle on both the public homepage and logged-in workspace.
+- Theme preference is saved in browser storage and defaults to the user system preference on first visit.
+- Improved color contrast across panels, forms, status pills, timeline, inventory, and reports.
+- Kept the Zoho Creator-like layout: sidebar apps/modules, topbar, forms, reports, and record detail panels.
+
+Recommended future UX refinements:
+
+- Split `src/App.tsx` into smaller module components for maintainability.
+- Add table sorting, pagination, and saved report filters.
+- Add skeleton loading states for API-backed pages.
+- Add toast notifications for create/update actions instead of inline-only messages.
+- Add a mobile bottom navigation pattern for frequently used modules.
+
 ## App Experience
 
 ### Public homepage

@@ -28,6 +28,7 @@ describe('App workflow', () => {
     expect(screen.getByRole('button', { name: /agent module/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /technician module/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /customer module/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /switch to dark mode/i })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /technician module/i }));
     expect(screen.getByRole('heading', { name: /analysis, estimates, and repair updates/i })).toBeInTheDocument();

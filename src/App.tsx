@@ -81,8 +81,21 @@ const moduleIcons: Record<ModuleId, string> = {
   customer: '📱',
 };
 
+type ThemeMode = 'light' | 'dark';
+
+const getInitialTheme = (): ThemeMode => {
+  const savedTheme = localStorage.getItem('service-desk-theme');
+
+  if (savedTheme === 'light' || savedTheme === 'dark') {
+    return savedTheme;
+  }
+
+  return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+};
+
 function App() {
   const [sessionId] = useState(getOrCreateSessionId);
+  const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
   const initialModule = getInitialModuleFromUrl();
   const auth = useAuth();
   const [activeModule, setActiveModule] = useState<ModuleId | null>(() => {
@@ -92,6 +105,13 @@ function App() {
 
     return initialModule && auth.user.moduleAccess.includes(initialModule) ? initialModule : defaultModuleForProfile(auth.user.profile);
   });
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem('service-desk-theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => setTheme((current) => (current === 'light' ? 'dark' : 'light'));
 
   const handleLoginSuccess = (user: AuthUser) => {
     const nextModule = initialModule && user.moduleAccess.includes(initialModule) ? initialModule : defaultModuleForProfile(user.profile);
@@ -115,13 +135,23 @@ function App() {
   };
 
   if (!auth.user || !activeModule) {
-    return <HomePage auth={auth} onLoginSuccess={handleLoginSuccess} />;
+    return <HomePage auth={auth} theme={theme} onThemeToggle={toggleTheme} onLoginSuccess={handleLoginSuccess} />;
   }
 
-  return <Workspace sessionId={sessionId} user={auth.user} activeModule={activeModule} onModuleChange={handleModuleChange} onLogout={handleLogout} />;
+  return <Workspace sessionId={sessionId} user={auth.user} activeModule={activeModule} theme={theme} onThemeToggle={toggleTheme} onModuleChange={handleModuleChange} onLogout={handleLogout} />;
 }
 
-function HomePage({ auth, onLoginSuccess }: { auth: ReturnType<typeof useAuth>; onLoginSuccess: (user: AuthUser) => void }) {
+function HomePage({
+  auth,
+  theme,
+  onThemeToggle,
+  onLoginSuccess,
+}: {
+  auth: ReturnType<typeof useAuth>;
+  theme: ThemeMode;
+  onThemeToggle: () => void;
+  onLoginSuccess: (user: AuthUser) => void;
+}) {
   const [email, setEmail] = useState('admin@servicedesk.local');
   const [password, setPassword] = useState('Admin@12345');
 
@@ -135,7 +165,7 @@ function HomePage({ auth, onLoginSuccess }: { auth: ReturnType<typeof useAuth>; 
     <main className="public-shell">
       <nav className="public-nav" aria-label="Homepage navigation">
         <div className="brand"><div className="brand-mark">SD</div><span>{appName}</span></div>
-        <div className="public-links"><a href="#features">Features</a><a href="#login">Login</a><a href={`mailto:${supportEmail}`}>Contact</a></div>
+        <div className="public-links"><a href="#features">Features</a><a href="#login">Login</a><a href={`mailto:${supportEmail}`}>Contact</a><ThemeToggle theme={theme} onToggle={onThemeToggle} /></div>
       </nav>
 
       <section className="homepage-hero">
@@ -195,12 +225,16 @@ function Workspace({
   sessionId,
   user,
   activeModule,
+  theme,
+  onThemeToggle,
   onModuleChange,
   onLogout,
 }: {
   sessionId: string;
   user: AuthUser;
   activeModule: ModuleId;
+  theme: ThemeMode;
+  onThemeToggle: () => void;
   onModuleChange: (moduleId: ModuleId) => void;
   onLogout: () => Promise<void>;
 }) {
@@ -251,7 +285,7 @@ function Workspace({
           <div className="user-menu">
             <span>{user.name}</span>
             <small>{user.role} · Session {sessionId.slice(0, 8)}</small>
-            <button type="button" className="secondary-button" onClick={() => void onLogout()}>Logout</button>
+            <div className="topbar-actions"><ThemeToggle theme={theme} onToggle={onThemeToggle} /><button type="button" className="secondary-button" onClick={() => void onLogout()}>Logout</button></div>
           </div>
         </header>
 
@@ -771,6 +805,17 @@ function profileToModules(profile: AuthProfile): ModuleId[] {
 
 function Feature({ title, body }: { title: string; body: string }) {
   return <article className="feature-item"><strong>{title}</strong><span>{body}</span></article>;
+}
+
+function ThemeToggle({ theme, onToggle }: { theme: ThemeMode; onToggle: () => void }) {
+  const nextTheme = theme === 'light' ? 'dark' : 'light';
+
+  return (
+    <button className="theme-toggle" type="button" onClick={onToggle} aria-label={`Switch to ${nextTheme} mode`}>
+      <span aria-hidden="true">{theme === 'light' ? '🌙' : '☀️'}</span>
+      {theme === 'light' ? 'Dark' : 'Light'} mode
+    </button>
+  );
 }
 
 type DeskActions = ReturnType<typeof useServiceDesk>;
