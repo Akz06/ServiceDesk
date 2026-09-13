@@ -47,8 +47,8 @@ describe('App workflow', () => {
     await user.type(screen.getByLabelText(/issue summary/i), 'Laptop does not power on');
     await user.click(screen.getByRole('button', { name: /create wi/i }));
 
-    expect(screen.getByText('Asha Rao')).toBeInTheDocument();
-    expect(screen.getByText('Lenovo ThinkPad')).toBeInTheDocument();
+    expect(screen.getAllByText('Asha Rao').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Lenovo ThinkPad').length).toBeGreaterThan(0);
   });
 
   it('lets customer approve an estimate', async () => {

@@ -24,14 +24,23 @@ Implemented improvements:
 - Theme preference is saved in browser storage and defaults to the user system preference on first visit.
 - Improved color contrast across panels, forms, status pills, timeline, inventory, and reports.
 - Kept the Zoho Creator-like layout: sidebar apps/modules, topbar, forms, reports, and record detail panels.
+- Masked the admin "create user" password field (`type="password"`) instead of showing it in plain text.
+- Scoped the Customer module's summary metrics to that customer's own repairs instead of showing shop-wide revenue and stock counts.
+- Moved the service catalog and inventory panel out of every module page and into dedicated "Catalog"/"Inventory" views (Admin gets both, Agent gets Inventory, Technician gets a read-only Parts view, Customer gets neither).
+- Added confirmation prompts before destructive actions: reset demo data, deactivate a user, cancel a work item, void an invoice.
+- Added a collapsible off-canvas navigation drawer for mobile (<840px) instead of a full-width stacked sidebar.
+- Gave every work-item and invoice status its own distinct pill color instead of falling back to one default blue.
+- Fixed the customer progress tracker to show a dedicated "Cancelled" state instead of rendering every stage as incomplete.
+- Fixed short record lists (e.g. a customer with one repair) rendering with a large dead gap instead of sitting at the top.
+- Added `aria-label`s to icon-only stepper buttons and a visually-hidden label on search inputs.
+- Added a consistent toast notification pattern for create/update actions, replacing the one-off inline banner.
 
 Recommended future UX refinements:
 
 - Split `src/App.tsx` into smaller module components for maintainability.
 - Add table sorting, pagination, and saved report filters.
 - Add skeleton loading states for API-backed pages.
-- Add toast notifications for create/update actions instead of inline-only messages.
-- Add a mobile bottom navigation pattern for frequently used modules.
+- Add outbound SMS/WhatsApp notifications on status change, and a phone-first technician view.
 
 ## App Experience
 

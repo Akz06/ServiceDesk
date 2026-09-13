@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { ProgressTracker } from './components/ProgressTracker';
+import { ToastStack } from './components/ToastStack';
 import { serviceCategories, technicians } from './data/repairShop';
 import {
   authProfiles,
@@ -14,6 +15,8 @@ import {
 } from './domain/constants';
 import { useAuth } from './hooks/useAuth';
 import { useServiceDesk } from './hooks/useServiceDesk';
+import { useToast } from './hooks/useToast';
+import type { ToastTone } from './hooks/useToast';
 import { getInitialModuleFromUrl, getOrCreateSessionId, updateUrlForModule } from './services/routing';
 import { getMetrics, getNextStatuses } from './services/serviceDeskStore';
 import { isApiPersistenceEnabled, userApi } from './services/apiClient';
@@ -155,10 +158,20 @@ function HomePage({
   const [email, setEmail] = useState('admin@servicedesk.local');
   const [password, setPassword] = useState('Admin@12345');
 
+  const performLogin = async (loginEmail: string, loginPassword: string) => {
+    const user = await auth.login(loginEmail, loginPassword);
+    onLoginSuccess(user);
+  };
+
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const user = await auth.login(email, password);
-    onLoginSuccess(user);
+    await performLogin(email, password);
+  };
+
+  const loginWithCredential = async (credential: (typeof demoCredentials)[number]) => {
+    setEmail(credential.email);
+    setPassword(credential.password);
+    await performLogin(credential.email, credential.password);
   };
 
   return (
@@ -202,7 +215,7 @@ function HomePage({
           </form>
           <div className="credential-grid" aria-label="Demo credentials">
             {demoCredentials.map((credential) => (
-              <button className="credential-card" type="button" key={credential.email} onClick={() => { setEmail(credential.email); setPassword(credential.password); }}>
+              <button className="credential-card" type="button" key={credential.email} onClick={() => void loginWithCredential(credential)}>
                 <strong>{credential.label}</strong>
                 <span>{credential.email}</span>
               </button>
@@ -238,22 +251,24 @@ function Workspace({
   onModuleChange: (moduleId: ModuleId) => void;
   onLogout: () => Promise<void>;
 }) {
-  const [selectedDeviceType, setSelectedDeviceType] = useState<DeviceType | 'All'>('All');
   const [selectedTechnicianId, setSelectedTechnicianId] = useState('tech-arun');
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const serviceDesk = useServiceDesk();
   const { state } = serviceDesk;
   const metrics = getMetrics(state);
-
-  const visibleCategories = useMemo(
-    () => serviceCategories.filter((category) => selectedDeviceType === 'All' || category.deviceType === selectedDeviceType),
-    [selectedDeviceType],
-  );
+  const toast = useToast();
 
   const activeLabel = moduleLabels[activeModule];
 
+  const changeModule = (moduleId: ModuleId) => {
+    onModuleChange(moduleId);
+    setMobileNavOpen(false);
+  };
+
   return (
     <main className="creator-shell">
-      <aside className="creator-sidebar">
+      {mobileNavOpen && <div className="nav-overlay" onClick={() => setMobileNavOpen(false)} aria-hidden="true" />}
+      <aside className={mobileNavOpen ? 'creator-sidebar nav-open' : 'creator-sidebar'}>
         <div className="brand app-brand"><div className="brand-mark">SD</div><span>{appName}</span></div>
         <div className="sidebar-section">
           <span className="sidebar-label">Applications</span>
@@ -262,7 +277,7 @@ function Workspace({
         <div className="sidebar-section">
           <span className="sidebar-label">Modules</span>
           {user.moduleAccess.map((moduleId) => (
-            <button className={moduleId === activeModule ? 'nav-item active' : 'nav-item'} key={moduleId} onClick={() => onModuleChange(moduleId)} type="button">
+            <button className={moduleId === activeModule ? 'nav-item active' : 'nav-item'} key={moduleId} onClick={() => changeModule(moduleId)} type="button">
               <span>{moduleIcons[moduleId]}</span>
               {moduleLabels[moduleId]} module
             </button>
@@ -277,10 +292,21 @@ function Workspace({
 
       <section className="creator-main">
         <header className="creator-topbar">
-          <div>
-            <p className="eyebrow">{activeLabel} workspace</p>
-            <h1>{activeLabel} module</h1>
-            <p>{moduleDescriptions[activeModule]}</p>
+          <div className="topbar-heading">
+            <button
+              type="button"
+              className="mobile-nav-toggle"
+              aria-label={mobileNavOpen ? 'Close navigation' : 'Open navigation'}
+              aria-expanded={mobileNavOpen}
+              onClick={() => setMobileNavOpen((open) => !open)}
+            >
+              {mobileNavOpen ? '✕' : '☰'}
+            </button>
+            <div>
+              <p className="eyebrow">{activeLabel} workspace</p>
+              <h1>{activeLabel} module</h1>
+              <p>{moduleDescriptions[activeModule]}</p>
+            </div>
           </div>
           <div className="user-menu">
             <span>{user.name}</span>
@@ -291,37 +317,36 @@ function Workspace({
 
         <SyncStatus isApiBacked={serviceDesk.isApiBacked} isLoading={serviceDesk.isLoading} error={serviceDesk.error} onRefresh={serviceDesk.refresh} />
 
-        <section className="creator-kpi-row" aria-label="Operational metrics">
-          <MetricCard label="Active WIs" value={String(metrics.activeWorkItems)} helper="Open repair jobs" />
-          <MetricCard label="Awaiting approval" value={String(metrics.awaitingApproval)} helper="Estimate decisions" />
-          <MetricCard label="Stock alerts" value={String(metrics.lowStockParts)} helper="Low inventory SKUs" />
-          <MetricCard label="Paid revenue" value={currencyFormatter.format(metrics.paidRevenue)} helper={`${currencyFormatter.format(metrics.invoicedRevenue)} invoiced`} />
-        </section>
+        {activeModule !== 'customer' && (
+          <section className="creator-kpi-row" aria-label="Operational metrics">
+            <MetricCard label="Active WIs" value={String(metrics.activeWorkItems)} helper="Open repair jobs" />
+            <MetricCard label="Awaiting approval" value={String(metrics.awaitingApproval)} helper="Estimate decisions" />
+            <MetricCard label="Stock alerts" value={String(metrics.lowStockParts)} helper="Low inventory SKUs" />
+            <MetricCard label="Paid revenue" value={currencyFormatter.format(metrics.paidRevenue)} helper={`${currencyFormatter.format(metrics.invoicedRevenue)} invoiced`} />
+          </section>
+        )}
 
         <section className="creator-page">
-          {activeModule === 'admin' && <AdminView {...serviceDesk} currentUser={user} />}
-          {activeModule === 'agent' && <AgentView {...serviceDesk} />}
+          {activeModule === 'admin' && <AdminView {...serviceDesk} currentUser={user} pushToast={toast.push} />}
+          {activeModule === 'agent' && <AgentView {...serviceDesk} pushToast={toast.push} />}
           {activeModule === 'technician' && (
             <TechnicianView
               selectedTechnicianId={selectedTechnicianId}
               setSelectedTechnicianId={setSelectedTechnicianId}
+              pushToast={toast.push}
               {...serviceDesk}
             />
           )}
-          {activeModule === 'customer' && <CustomerView {...serviceDesk} />}
+          {activeModule === 'customer' && <CustomerView {...serviceDesk} pushToast={toast.push} />}
         </section>
-
-        <ServiceCatalog selectedDeviceType={selectedDeviceType} setSelectedDeviceType={setSelectedDeviceType} visibleCategories={visibleCategories} />
-
-        {(activeModule === 'admin' || activeModule === 'agent' || activeModule === 'technician') && (
-          <InventoryView {...serviceDesk} canManage={activeModule === 'admin' || activeModule === 'agent'} canReset={user.profile === 'admin'} />
-        )}
       </section>
+      <ToastStack toasts={toast.toasts} onDismiss={toast.dismiss} />
     </main>
   );
 }
 
-function AdminView({ state, createInvoice, updateInvoiceStatus, currentUser }: DeskActions & { currentUser: AuthUser }) {
+function AdminView(props: DeskActions & { currentUser: AuthUser; pushToast: (message: ReactNode, tone?: ToastTone) => void }) {
+  const { state, createInvoice, updateInvoiceStatus, currentUser, pushToast } = props;
   const metrics = getMetrics(state);
   const localDemoManagedUsers: ManagedUser[] = [
     { ...currentUser, active: true, createdAt: 'Local demo' },
@@ -329,11 +354,17 @@ function AdminView({ state, createInvoice, updateInvoiceStatus, currentUser }: D
     { id: 'user-technician', name: 'Technician User', email: 'tech@servicedesk.local', role: 'Technician', profile: 'technician', moduleAccess: ['technician'], active: true, createdAt: 'Local demo' },
     { id: 'user-customer', name: 'Customer User', email: 'customer@servicedesk.local', role: 'Customer', profile: 'customer', moduleAccess: ['customer'], active: true, createdAt: 'Local demo' },
   ];
-  const [activeView, setActiveView] = useState<'overview' | 'users' | 'customers' | 'technicians' | 'invoices'>('overview');
+  const [activeView, setActiveView] = useState<'overview' | 'users' | 'customers' | 'technicians' | 'invoices' | 'catalog' | 'inventory'>('overview');
   const [users, setUsers] = useState<ManagedUser[]>(() => (isApiPersistenceEnabled ? [] : localDemoManagedUsers));
   const [userDraft, setUserDraft] = useState<UserDraft>(blankUser);
   const [userError, setUserError] = useState<string | null>(null);
   const [invoiceDraft, setInvoiceDraft] = useState<InvoiceDraft>({ workItemId: state.workItems[0]?.id ?? '', amount: state.workItems[0]?.estimatedPrice ?? 0, notes: '' });
+  const [selectedDeviceType, setSelectedDeviceType] = useState<DeviceType | 'All'>('All');
+
+  const visibleCategories = useMemo(
+    () => serviceCategories.filter((category) => selectedDeviceType === 'All' || category.deviceType === selectedDeviceType),
+    [selectedDeviceType],
+  );
 
   useEffect(() => {
     if (!isApiPersistenceEnabled) {
@@ -351,6 +382,7 @@ function AdminView({ state, createInvoice, updateInvoiceStatus, currentUser }: D
     if (!isApiPersistenceEnabled) {
       setUsers((current) => [{ id: `local-${Date.now()}`, role: profileToRole(userDraft.profile), moduleAccess: profileToModules(userDraft.profile), createdAt: 'Local demo', ...userDraft }, ...current]);
       setUserDraft(blankUser);
+      pushToast(`Created user ${userDraft.name || userDraft.email}.`);
       return;
     }
 
@@ -358,22 +390,33 @@ function AdminView({ state, createInvoice, updateInvoiceStatus, currentUser }: D
       const response = await userApi.create(userDraft);
       setUsers(response.users);
       setUserDraft(blankUser);
+      pushToast(`Created user ${userDraft.name || userDraft.email}.`);
     } catch (error) {
-      setUserError(error instanceof Error ? error.message : 'Unable to create user.');
+      const message = error instanceof Error ? error.message : 'Unable to create user.';
+      setUserError(message);
+      pushToast(message, 'error');
     }
   };
 
   const toggleUser = async (managedUser: ManagedUser) => {
+    if (managedUser.active && !window.confirm(`Deactivate ${managedUser.name}? They will immediately lose access to their module.`)) {
+      return;
+    }
+
     if (!isApiPersistenceEnabled) {
       setUsers((current) => current.map((item) => (item.id === managedUser.id ? { ...item, active: !item.active } : item)));
+      pushToast(`${managedUser.active ? 'Deactivated' : 'Activated'} ${managedUser.name}.`);
       return;
     }
 
     try {
       const response = await userApi.update(managedUser.id, { name: managedUser.name, email: managedUser.email, profile: managedUser.profile, active: !managedUser.active, password: '' });
       setUsers(response.users);
+      pushToast(`${managedUser.active ? 'Deactivated' : 'Activated'} ${managedUser.name}.`);
     } catch (error) {
-      setUserError(error instanceof Error ? error.message : 'Unable to update user.');
+      const message = error instanceof Error ? error.message : 'Unable to update user.';
+      setUserError(message);
+      pushToast(message, 'error');
     }
   };
 
@@ -381,6 +424,16 @@ function AdminView({ state, createInvoice, updateInvoiceStatus, currentUser }: D
     event.preventDefault();
     createInvoice(invoiceDraft);
     setInvoiceDraft({ workItemId: state.workItems[0]?.id ?? '', amount: state.workItems[0]?.estimatedPrice ?? 0, notes: '' });
+    pushToast(`Invoice issued for ${currencyFormatter.format(invoiceDraft.amount)}.`);
+  };
+
+  const changeInvoiceStatus = (invoiceId: string, status: InvoiceStatus) => {
+    if (status === 'Void' && !window.confirm('Void this invoice? This cannot be undone.')) {
+      return;
+    }
+
+    updateInvoiceStatus(invoiceId, status);
+    pushToast(`Invoice ${invoiceId} marked ${status}.`);
   };
 
   return (
@@ -393,6 +446,8 @@ function AdminView({ state, createInvoice, updateInvoiceStatus, currentUser }: D
         { id: 'customers', label: 'Customers' },
         { id: 'technicians', label: 'Technicians' },
         { id: 'invoices', label: 'Invoices' },
+        { id: 'inventory', label: 'Inventory' },
+        { id: 'catalog', label: 'Catalog' },
       ]}
       activeView={activeView}
       onViewChange={(view) => setActiveView(view as typeof activeView)}
@@ -420,7 +475,7 @@ function AdminView({ state, createInvoice, updateInvoiceStatus, currentUser }: D
             <form className="creator-form" onSubmit={(event) => void submitUser(event)}>
               <label>Name<input required value={userDraft.name} onChange={(event) => setUserDraft({ ...userDraft, name: event.target.value })} placeholder="New staff or customer" /></label>
               <label>Email<input required type="email" value={userDraft.email} onChange={(event) => setUserDraft({ ...userDraft, email: event.target.value })} placeholder="name@example.com" /></label>
-              <div className="form-row"><label>Profile<select value={userDraft.profile} onChange={(event) => setUserDraft({ ...userDraft, profile: event.target.value as AuthProfile })}>{authProfiles.map((profile) => <option key={profile} value={profile}>{profile}</option>)}</select></label><label>Password<input required value={userDraft.password} onChange={(event) => setUserDraft({ ...userDraft, password: event.target.value })} placeholder="Minimum 8 chars" /></label></div>
+              <div className="form-row"><label>Profile<select value={userDraft.profile} onChange={(event) => setUserDraft({ ...userDraft, profile: event.target.value as AuthProfile })}>{authProfiles.map((profile) => <option key={profile} value={profile}>{profile}</option>)}</select></label><label>Password<input required type="password" minLength={8} value={userDraft.password} onChange={(event) => setUserDraft({ ...userDraft, password: event.target.value })} placeholder="Minimum 8 chars" /></label></div>
               <label className="inline-check"><input type="checkbox" checked={userDraft.active} onChange={(event) => setUserDraft({ ...userDraft, active: event.target.checked })} /> Active user</label>
               {userError && <div className="login-error">{userError}</div>}
               <button className="primary-button" type="submit">Create user</button>
@@ -455,19 +510,25 @@ function AdminView({ state, createInvoice, updateInvoiceStatus, currentUser }: D
               <button className="primary-button" type="submit">Issue invoice</button>
             </form>
           </CreatorFormCard>
-          <InvoiceList invoices={state.invoices} updateInvoiceStatus={updateInvoiceStatus} />
+          <InvoiceList invoices={state.invoices} updateInvoiceStatus={changeInvoiceStatus} />
         </CreatorSplit>
+      )}
+
+      {activeView === 'inventory' && <InventoryView {...props} canManage canReset pushToast={pushToast} />}
+
+      {activeView === 'catalog' && (
+        <ServiceCatalog selectedDeviceType={selectedDeviceType} setSelectedDeviceType={setSelectedDeviceType} visibleCategories={visibleCategories} />
       )}
     </ModuleFrame>
   );
 }
 
-function AgentView({ state, createWorkItem, updateWorkItem, cancelWorkItem }: DeskActions) {
-  const [activeView, setActiveView] = useState<'new' | 'queue' | 'walkins'>('new');
+function AgentView(props: DeskActions & { pushToast: (message: ReactNode, tone?: ToastTone) => void }) {
+  const { state, createWorkItem, updateWorkItem, cancelWorkItem, pushToast } = props;
+  const [activeView, setActiveView] = useState<'new' | 'queue' | 'walkins' | 'inventory'>('new');
   const [draft, setDraft] = useState<WorkItemDraft>(blankDraft);
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState(state.workItems[0]?.id ?? '');
-  const [submissionNotice, setSubmissionNotice] = useState<{ customer: string; device: string } | null>(null);
 
   const filtered = state.workItems.filter((item) =>
     `${item.id} ${item.customerName} ${item.deviceModel} ${item.status}`.toLowerCase().includes(query.toLowerCase()),
@@ -478,21 +539,32 @@ function AgentView({ state, createWorkItem, updateWorkItem, cancelWorkItem }: De
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setSubmissionNotice({ customer: draft.customerName, device: draft.deviceModel });
     createWorkItem(draft);
+    pushToast(<>Created work item for <strong>{draft.customerName}</strong> · <strong>{draft.deviceModel}</strong>.</>);
     setDraft(blankDraft);
     setActiveView('queue');
+  };
+
+  const cancelItem = (workItemId: string) => {
+    if (!window.confirm('Cancel this work item? The customer will be notified and this cannot be undone.')) {
+      return;
+    }
+
+    cancelWorkItem(workItemId, 'Agent');
+    pushToast('Work item cancelled.');
   };
 
   return (
     <ModuleFrame
       title="Agent desk"
       subtitle="Create customer requests and manage the repair queue using form and report views."
-      views={[{ id: 'new', label: 'New request' }, { id: 'queue', label: 'All work items' }, { id: 'walkins', label: 'Walk-ins' }]}
+      views={[{ id: 'new', label: 'New request' }, { id: 'queue', label: 'All work items' }, { id: 'walkins', label: 'Walk-ins' }, { id: 'inventory', label: 'Inventory' }]}
       activeView={activeView}
       onViewChange={(view) => setActiveView(view as typeof activeView)}
     >
-      {activeView === 'new' ? (
+      {activeView === 'inventory' ? (
+        <InventoryView {...props} canManage canReset={false} />
+      ) : activeView === 'new' ? (
         <CreatorSplit>
           <CreatorFormCard title="Create a work item" eyebrow="Request form">
             <p className="muted">Agents capture online and walk-in customer requests, then assign the WI to a technician.</p>
@@ -511,7 +583,6 @@ function AgentView({ state, createWorkItem, updateWorkItem, cancelWorkItem }: De
         </CreatorSplit>
       ) : (
         <>
-          {submissionNotice && <div className="success-banner">Created WI for <strong>{submissionNotice.customer}</strong> · {submissionNotice.device}</div>}
           <CreatorRecordBrowser
             title={activeView === 'walkins' ? 'Walk-in requests' : 'All work items'}
             records={list}
@@ -525,7 +596,7 @@ function AgentView({ state, createWorkItem, updateWorkItem, cancelWorkItem }: De
                 <select value={selected.assignedTechnicianId} onChange={(event) => updateWorkItem(selected.id, { assignedTechnicianId: event.target.value, status: 'Assigned' }, 'Agent', 'Agent reassigned the work item.')}>
                   {technicians.map((tech) => <option value={tech.id} key={tech.id}>{tech.name}</option>)}
                 </select>
-                {!terminalStatuses.includes(selected.status) && <button type="button" className="danger-button" onClick={() => cancelWorkItem(selected.id, 'Agent')}>Cancel</button>}
+                {!terminalStatuses.includes(selected.status) && <button type="button" className="danger-button" onClick={() => cancelItem(selected.id)}>Cancel</button>}
               </div>
             </WorkItemCard>
           )}
@@ -536,8 +607,9 @@ function AgentView({ state, createWorkItem, updateWorkItem, cancelWorkItem }: De
   );
 }
 
-function TechnicianView({ state, selectedTechnicianId, setSelectedTechnicianId, updateWorkItem, adjustInventory }: DeskActions & { selectedTechnicianId: string; setSelectedTechnicianId: (id: string) => void }) {
-  const [activeView, setActiveView] = useState<'assigned' | 'estimates' | 'repair'>('assigned');
+function TechnicianView(props: DeskActions & { selectedTechnicianId: string; setSelectedTechnicianId: (id: string) => void; pushToast: (message: ReactNode, tone?: ToastTone) => void }) {
+  const { state, selectedTechnicianId, setSelectedTechnicianId, updateWorkItem, adjustInventory, pushToast } = props;
+  const [activeView, setActiveView] = useState<'assigned' | 'estimates' | 'repair' | 'parts'>('assigned');
   const assignedItems = state.workItems.filter((item) => item.assignedTechnicianId === selectedTechnicianId && item.status !== 'Cancelled');
   const estimateItems = assignedItems.filter((item) => item.status === 'Diagnosis' || item.status === 'Estimate Shared');
   const repairItems = assignedItems.filter((item) => item.status === 'Customer Approved' || item.status === 'In Repair' || item.status === 'Waiting for Parts' || item.status === 'Quality Check');
@@ -547,20 +619,24 @@ function TechnicianView({ state, selectedTechnicianId, setSelectedTechnicianId, 
     <ModuleFrame
       title="Analysis, estimates, and repair updates"
       subtitle="Technicians work from assigned reports, open a record, update diagnosis, consume parts, and move status forward."
-      views={[{ id: 'assigned', label: 'Assigned jobs' }, { id: 'estimates', label: 'Estimates' }, { id: 'repair', label: 'In repair' }]}
+      views={[{ id: 'assigned', label: 'Assigned jobs' }, { id: 'estimates', label: 'Estimates' }, { id: 'repair', label: 'In repair' }, { id: 'parts', label: 'Parts' }]}
       activeView={activeView}
       onViewChange={(view) => setActiveView(view as typeof activeView)}
-      toolbar={<label className="filter-control compact-control">Technician<select value={selectedTechnicianId} onChange={(event) => setSelectedTechnicianId(event.target.value)}>{technicians.map((tech) => <option value={tech.id} key={tech.id}>{tech.name}</option>)}</select></label>}
+      toolbar={activeView !== 'parts' ? <label className="filter-control compact-control">Technician<select value={selectedTechnicianId} onChange={(event) => setSelectedTechnicianId(event.target.value)}>{technicians.map((tech) => <option value={tech.id} key={tech.id}>{tech.name}</option>)}</select></label> : undefined}
     >
-      <div className="creator-record-grid">
-        {visibleItems.map((item) => <TechnicianWorkItem key={item.id} item={item} parts={state.inventoryParts} updateWorkItem={updateWorkItem} adjustInventory={adjustInventory} />)}
-        {!visibleItems.length && <EmptyState title="No records in this view" body="Change the technician or view filter to see more work items." />}
-      </div>
+      {activeView === 'parts' ? (
+        <InventoryView {...props} canManage={false} canReset={false} />
+      ) : (
+        <div className="creator-record-grid">
+          {visibleItems.map((item) => <TechnicianWorkItem key={item.id} item={item} parts={state.inventoryParts} updateWorkItem={updateWorkItem} adjustInventory={adjustInventory} pushToast={pushToast} />)}
+          {!visibleItems.length && <EmptyState title="No records in this view" body="Change the technician or view filter to see more work items." />}
+        </div>
+      )}
     </ModuleFrame>
   );
 }
 
-function TechnicianWorkItem({ item, parts, updateWorkItem, adjustInventory }: { item: WorkItem; parts: InventoryPart[]; updateWorkItem: DeskActions['updateWorkItem']; adjustInventory: DeskActions['adjustInventory'] }) {
+function TechnicianWorkItem({ item, parts, updateWorkItem, adjustInventory, pushToast }: { item: WorkItem; parts: InventoryPart[]; updateWorkItem: DeskActions['updateWorkItem']; adjustInventory: DeskActions['adjustInventory']; pushToast: (message: ReactNode, tone?: ToastTone) => void }) {
   const [analysis, setAnalysis] = useState(item.analysis);
   const [requiredChanges, setRequiredChanges] = useState(item.requiredChanges);
   const [estimatedPrice, setEstimatedPrice] = useState(String(item.estimatedPrice));
@@ -571,12 +647,15 @@ function TechnicianWorkItem({ item, parts, updateWorkItem, adjustInventory }: { 
   const save = () => {
     const selectedParts = partSku ? Array.from(new Set([...item.partsRequired, partSku])) : item.partsRequired;
     updateWorkItem(item.id, { analysis, requiredChanges, estimatedPrice: Number(estimatedPrice) || 0, status, promisedBy, partsRequired: selectedParts }, 'Technician', `Technician updated status to ${status}.`);
+    pushToast(`${item.id} updated — status set to ${status}.`);
   };
 
   const consumePart = () => {
     if (!partSku) return;
+    const part = parts.find((candidate) => candidate.sku === partSku);
     adjustInventory(partSku, -1);
     updateWorkItem(item.id, { partsRequired: Array.from(new Set([...item.partsRequired, partSku])) }, 'Technician', `Technician consumed inventory part ${partSku}.`);
+    pushToast(`Used 1× ${part?.name ?? partSku} on ${item.id}.`);
   };
 
   return (
@@ -591,11 +670,19 @@ function TechnicianWorkItem({ item, parts, updateWorkItem, adjustInventory }: { 
   );
 }
 
-function CustomerView({ state, approveEstimate }: DeskActions) {
+function CustomerView({ state, approveEstimate, pushToast }: DeskActions & { pushToast: (message: ReactNode, tone?: ToastTone) => void }) {
   const [selectedCustomerId, setSelectedCustomerId] = useState(state.customers[0]?.id ?? '');
   const [selectedId, setSelectedId] = useState('');
   const customerItems = state.workItems.filter((item) => item.customerId === selectedCustomerId);
   const selected = customerItems.find((item) => item.id === selectedId) ?? customerItems[0];
+  const awaitingMyApproval = customerItems.filter((item) => item.status === 'Estimate Shared' && !item.approvedByCustomer).length;
+  const completedRepairs = customerItems.filter((item) => item.status === 'Delivered').length;
+  const totalPaid = state.invoices.filter((invoice) => invoice.customerId === selectedCustomerId && invoice.status === 'Paid').reduce((sum, invoice) => sum + invoice.amount, 0);
+
+  const approve = (workItemId: string) => {
+    approveEstimate(workItemId);
+    pushToast('Estimate approved — the technician has been notified.');
+  };
 
   return (
     <ModuleFrame
@@ -606,6 +693,12 @@ function CustomerView({ state, approveEstimate }: DeskActions) {
       onViewChange={() => undefined}
       toolbar={<label className="filter-control compact-control">Customer<select value={selectedCustomerId} onChange={(event) => setSelectedCustomerId(event.target.value)}>{state.customers.map((customer) => <option value={customer.id} key={customer.id}>{customer.name}</option>)}</select></label>}
     >
+      <section className="creator-kpi-row" aria-label="My repair summary">
+        <MetricCard label="My repairs" value={String(customerItems.length)} helper="Total repair records" />
+        <MetricCard label="Awaiting my approval" value={String(awaitingMyApproval)} helper="Estimates to review" />
+        <MetricCard label="Completed" value={String(completedRepairs)} helper="Delivered to me" />
+        <MetricCard label="Paid to date" value={currencyFormatter.format(totalPaid)} helper="Across my invoices" />
+      </section>
       <CreatorRecordBrowser
         title="My repair records"
         records={customerItems}
@@ -617,7 +710,7 @@ function CustomerView({ state, approveEstimate }: DeskActions) {
         detail={selected && (
           <article className="customer-detail-card">
             <WorkItemCard item={selected} />
-            {selected.status === 'Estimate Shared' && !selected.approvedByCustomer && <button type="button" className="primary-button" onClick={() => approveEstimate(selected.id)}>Approve estimate</button>}
+            {selected.status === 'Estimate Shared' && !selected.approvedByCustomer && <button type="button" className="primary-button" onClick={() => approve(selected.id)}>Approve estimate</button>}
             <ProgressTracker status={selected.status} />
             <h3>Live updates</h3>
             <ul className="timeline">{selected.updates.map((update) => <li key={update.id}><strong>{update.actor}</strong> · {update.message}<span>{update.at}</span></li>)}</ul>
@@ -672,12 +765,22 @@ function WorkItemCard({ item, children }: { item: WorkItem; children?: ReactNode
   );
 }
 
-function InventoryView({ state, adjustInventory, addInventoryPart, reset, canManage, canReset }: DeskActions & { canManage: boolean; canReset: boolean }) {
+function InventoryView({ state, adjustInventory, addInventoryPart, reset, canManage, canReset, pushToast }: DeskActions & { canManage: boolean; canReset: boolean; pushToast: (message: ReactNode, tone?: ToastTone) => void }) {
   const [part, setPart] = useState<InventoryPart>(blankPart);
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     addInventoryPart({ ...part, sku: part.sku.toUpperCase(), compatibleWith: [part.compatibleWith[0] ?? 'Laptop'] });
+    pushToast(`Saved part ${part.sku.toUpperCase() || part.name}.`);
     setPart(blankPart);
+  };
+
+  const confirmReset = () => {
+    if (!window.confirm('Reset all demo data? This permanently wipes every local work item, invoice, and inventory change.')) {
+      return;
+    }
+
+    reset();
+    pushToast('Demo data reset.');
   };
 
   return (
@@ -691,7 +794,7 @@ function InventoryView({ state, adjustInventory, addInventoryPart, reset, canMan
               <label>Name<input required value={part.name} onChange={(event) => setPart({ ...part, name: event.target.value })} placeholder="MacBook Battery" /></label>
               <div className="form-row"><label>Device<select value={part.compatibleWith[0]} onChange={(event) => setPart({ ...part, compatibleWith: [event.target.value as DeviceType] })}>{deviceTypes.map((type) => <option key={type}>{type}</option>)}</select></label><label>Quantity<input type="number" value={part.quantity} onChange={(event) => setPart({ ...part, quantity: Number(event.target.value) })} /></label></div>
               <div className="form-row"><label>Reorder at<input type="number" value={part.reorderLevel} onChange={(event) => setPart({ ...part, reorderLevel: Number(event.target.value) })} /></label><label>Cost<input type="number" value={part.unitCost} onChange={(event) => setPart({ ...part, unitCost: Number(event.target.value) })} /></label></div>
-              <div className="card-actions"><button className="primary-button" type="submit">Add / update part</button>{canReset && <button className="secondary-dark-button" type="button" onClick={reset}>Reset demo data</button>}</div>
+              <div className="card-actions"><button className="primary-button" type="submit">Add / update part</button>{canReset && <button className="secondary-dark-button" type="button" onClick={confirmReset}>Reset demo data</button>}</div>
             </form>
           ) : <p className="muted">Technicians can view and consume parts. Agents/admins manage part records.</p>}
         </CreatorFormCard>
@@ -703,7 +806,10 @@ function InventoryView({ state, adjustInventory, addInventoryPart, reset, canMan
               <article className="record-row inventory-record" key={inventoryPart.sku}>
                 <div><strong>{inventoryPart.name}</strong><span>{inventoryPart.sku} · {inventoryPart.compatibleWith.join(', ')}</span></div>
                 <div className="inventory-meta"><span className={lowStock ? 'stock-low' : 'stock-ok'}>{inventoryPart.quantity} in stock</span><small>Reorder at {inventoryPart.reorderLevel} · Cost {currencyFormatter.format(inventoryPart.unitCost)}</small></div>
-                <div className="stepper"><button type="button" onClick={() => adjustInventory(inventoryPart.sku, -1)}>-</button><button type="button" onClick={() => adjustInventory(inventoryPart.sku, 1)}>+</button></div>
+                <div className="stepper">
+                  <button type="button" aria-label={`Decrease ${inventoryPart.name} quantity`} onClick={() => adjustInventory(inventoryPart.sku, -1)}>-</button>
+                  <button type="button" aria-label={`Increase ${inventoryPart.name} quantity`} onClick={() => adjustInventory(inventoryPart.sku, 1)}>+</button>
+                </div>
               </article>
             );
           })}
@@ -753,11 +859,18 @@ function CreatorFormCard({ title, eyebrow, children }: { title: string; eyebrow:
 }
 
 function CreatorRecordBrowser({ title, records, selected, query, setQuery, setSelectedId, detail, hideSearch = false }: { title: string; records: WorkItem[]; selected?: WorkItem; query: string; setQuery: (query: string) => void; setSelectedId: (id: string) => void; detail?: ReactNode; hideSearch?: boolean }) {
+  const searchId = useId();
+
   return (
     <div className="record-browser">
       <div className="creator-list-panel">
         <ListHeader title={title} count={records.length} />
-        {!hideSearch && <input className="search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search records" />}
+        {!hideSearch && (
+          <>
+            <label className="visually-hidden" htmlFor={searchId}>Search {title}</label>
+            <input id={searchId} className="search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search records" />
+          </>
+        )}
         <div className="record-list">
           {records.map((item) => (
             <button type="button" className={selected?.id === item.id ? 'record-row selectable active' : 'record-row selectable'} key={item.id} onClick={() => setSelectedId(item.id)}>
