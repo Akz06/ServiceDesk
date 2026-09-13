@@ -2,7 +2,7 @@
 
 A full-stack electronics repair ERP for laptop, desktop, mobile, tablet, console, accessory, and other electronics repair shops.
 
-It includes a public homepage, PostgreSQL-backed login, profile-based modules, work-item lifecycle management, technician estimates, customer progress tracking, spare-parts inventory, admin user management, master data, invoices, and operational reporting.
+The application now uses a **Zoho Creator-like layout**: a public homepage, login page, left-side application/module navigation, module-specific views, form panels, report/list panels, record detail panels, and PostgreSQL-backed full-stack APIs.
 
 ## Stack
 
@@ -11,6 +11,29 @@ It includes a public homepage, PostgreSQL-backed login, profile-based modules, w
 - Database: PostgreSQL
 - Auth: PostgreSQL users and sessions, `scrypt` password hashing, bearer session tokens
 - Deployment: Railway single web service serving API and built frontend
+
+## App Experience
+
+### Public homepage
+
+The homepage explains the product before login:
+
+- Repair ERP overview
+- Feature highlights
+- Application preview
+- Secure login panel
+- Demo login shortcuts
+
+### Creator-style workspace
+
+After login, users enter an app shell similar to a low-code business app:
+
+- Left sidebar with the Repair ERP application and allowed modules
+- Topbar with current module, profile, and session
+- View tabs inside each module
+- Forms on the left and reports/record details on the right
+- Master-data reports and filtered views
+- Responsive mobile/tablet layout
 
 ## Modules
 
@@ -23,25 +46,52 @@ It includes a public homepage, PostgreSQL-backed login, profile-based modules, w
 
 ### Admin module
 
+Creator-style views:
+
+- Overview
+- Users
+- Customers
+- Technicians
+- Invoices
+
+Capabilities:
+
 - User management
 - Create users with profile assignment
 - Activate/deactivate users
-- Business dashboard
-- Customer master list
-- Technician master list
+- Business metrics
+- Customer master report
+- Technician master report
 - Invoice creation
 - Invoice status updates: Draft, Issued, Paid, Void
 - Inventory management and demo data reset
 
 ### Agent module
 
+Creator-style views:
+
+- New request
+- All work items
+- Walk-ins
+
+Capabilities:
+
 - Create online or walk-in repair work items
 - Capture customer/device details
 - Assign/reassign technicians
 - Search and cancel work items
+- Open a record detail panel from the list view
 - Manage spare-parts inventory
 
 ### Technician module
+
+Creator-style views:
+
+- Assigned jobs
+- Estimates
+- In repair
+
+Capabilities:
 
 - View assigned repair jobs
 - Add diagnosis and required changes
@@ -51,7 +101,14 @@ It includes a public homepage, PostgreSQL-backed login, profile-based modules, w
 
 ### Customer module
 
+Creator-style views:
+
+- My repairs
+
+Capabilities:
+
 - View repair progress
+- Select repair record
 - See update timeline
 - Approve shared estimates
 
@@ -207,9 +264,32 @@ Run before pushing:
 npm run typecheck && npm run lint && npm run test && npm run build
 ```
 
+## Design Direction
+
+This is no longer just a dashboard. The UI is structured as a business application:
+
+- Application sidebar
+- Role-based modules
+- Module-level view tabs
+- Forms
+- Reports
+- Record list and detail views
+- Master data pages
+- Workflow-specific action panels
+
+Future improvements to make it even closer to Zoho Creator:
+
+- Configurable form builder
+- Saved report filters
+- Kanban workflow view
+- Audit trail per record
+- File attachments for device photos
+- Customer-specific login binding instead of selectable demo customer
+- Granular permissions per view/action
+
 ## Security Notes
 
-This is a full-stack ERP-style app. Before using for real customers:
+Before using for real customers:
 
 - Replace or deactivate demo users.
 - Use a strong Railway `AUTH_SECRET`.
@@ -218,4 +298,3 @@ This is a full-stack ERP-style app. Before using for real customers:
 - Restrict CORS if frontend/backend are split.
 - Add audit logs for user, invoice, and repair status changes.
 - Add stronger request validation with a schema library such as Zod.
-- Add database backups and monitoring.

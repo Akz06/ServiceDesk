@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { FormEvent } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 import { ProgressTracker } from './components/ProgressTracker';
 import { serviceCategories, technicians } from './data/repairShop';
 import {
@@ -27,6 +27,7 @@ import type {
   ManagedUser,
   ModuleId,
   UserDraft,
+  UserRole,
   WorkItem,
   WorkItemDraft,
   WorkItemStatus,
@@ -72,6 +73,13 @@ const demoCredentials = [
   { label: 'Technician', email: 'tech@servicedesk.local', password: 'Tech@12345' },
   { label: 'Customer', email: 'customer@servicedesk.local', password: 'Customer@12345' },
 ];
+
+const moduleIcons: Record<ModuleId, string> = {
+  admin: '⚙️',
+  agent: '🧾',
+  technician: '🛠️',
+  customer: '📱',
+};
 
 function App() {
   const [sessionId] = useState(getOrCreateSessionId);
@@ -127,44 +135,57 @@ function HomePage({ auth, onLoginSuccess }: { auth: ReturnType<typeof useAuth>; 
     <main className="public-shell">
       <nav className="public-nav" aria-label="Homepage navigation">
         <div className="brand"><div className="brand-mark">SD</div><span>{appName}</span></div>
-        <a href={`mailto:${supportEmail}`}>{supportEmail}</a>
+        <div className="public-links"><a href="#features">Features</a><a href="#login">Login</a><a href={`mailto:${supportEmail}`}>Contact</a></div>
       </nav>
+
       <section className="homepage-hero">
         <div className="homepage-copy">
-          <p className="eyebrow">Full-stack repair ERP platform</p>
-          <h1>Run your electronics repair shop like a modern ERP.</h1>
+          <p className="eyebrow">Full-stack repair ERP</p>
+          <h1>Repair shop operations, built like a real business app.</h1>
           <p>
-            {appName} combines repair request intake, technician workflow, customer progress, inventory,
-            user administration, invoicing, and reporting in one PostgreSQL-backed application.
+            {appName} is a PostgreSQL-backed full-stack application for managing repair requests,
+            technicians, estimates, inventory, customer progress, users, invoices, and reports.
           </p>
-          <div className="feature-list">
-            <Feature title="Admin console" body="Manage users, profiles, invoices, master data, reports, and stock alerts." />
-            <Feature title="Agent desk" body="Create online or walk-in work items and assign technicians." />
-            <Feature title="Technician bay" body="Diagnose devices, share estimates, consume parts, and update repair status." />
-            <Feature title="Customer portal" body="Customers can securely view repair progress and approve estimates." />
+          <div className="hero-actions">
+            <a className="primary-link" href="#login">Open application</a>
+            <a className="secondary-link" href={`tel:${supportPhone}`}>Call {supportPhone}</a>
+          </div>
+          <div className="creator-preview" aria-label="Application preview">
+            <div className="preview-sidebar"><span /><span /><span /></div>
+            <div className="preview-content">
+              <div className="preview-toolbar" />
+              <div className="preview-grid"><span /><span /><span /><span /></div>
+              <div className="preview-table"><span /><span /><span /><span /></div>
+            </div>
           </div>
         </div>
-        <aside className="login-panel" aria-label="Login panel">
-          <p className="eyebrow">Secure login</p>
-          <h2>Login with your profile</h2>
-          <p className="muted">Production login is backed by PostgreSQL users and sessions. Demo users are seeded on startup.</p>
+
+        <aside className="login-panel" id="login" aria-label="Login panel">
+          <p className="eyebrow">Secure workspace</p>
+          <h2>Login to your module</h2>
+          <p className="muted">Production login uses PostgreSQL users and server sessions. Demo users are seeded automatically.</p>
           <form className="login-form" onSubmit={(event) => void submit(event)}>
             <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
             <label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={8} /></label>
             {auth.authError && <div className="login-error">{auth.authError}</div>}
-            <button className="primary-button" type="submit" disabled={auth.isAuthenticating}>{auth.isAuthenticating ? 'Logging in…' : 'Login securely'}</button>
+            <button className="primary-button full-width" type="submit" disabled={auth.isAuthenticating}>{auth.isAuthenticating ? 'Logging in…' : 'Login securely'}</button>
           </form>
           <div className="credential-grid" aria-label="Demo credentials">
             {demoCredentials.map((credential) => (
-              <div className="credential-card" key={credential.email}>
+              <button className="credential-card" type="button" key={credential.email} onClick={() => { setEmail(credential.email); setPassword(credential.password); }}>
                 <strong>{credential.label}</strong>
                 <span>{credential.email}</span>
-                <button type="button" onClick={() => { setEmail(credential.email); setPassword(credential.password); }}>Use demo</button>
-              </div>
+              </button>
             ))}
           </div>
-          <p className="contact-line">Need help? <a href={`tel:${supportPhone}`}>{supportPhone}</a></p>
         </aside>
+      </section>
+
+      <section className="feature-band" id="features">
+        <Feature title="Creator-like app shell" body="Modules, reports, forms, record lists, and detail panels instead of a single dashboard." />
+        <Feature title="Role-based access" body="Admin sees every module; Agent, Technician, and Customer see only their permitted workspace." />
+        <Feature title="Full-stack persistence" body="Express APIs persist users, sessions, work items, invoices, inventory, and customer data in PostgreSQL." />
+        <Feature title="Railway ready" body="Single deployable service serving the API and the built React application." />
       </section>
     </main>
   );
@@ -194,94 +215,74 @@ function Workspace({
     [selectedDeviceType],
   );
 
+  const activeLabel = moduleLabels[activeModule];
+
   return (
-    <main className="app-shell">
-      <header className="hero compact-hero">
-        <nav className="topbar" aria-label="Application navigation">
-          <div className="brand"><div className="brand-mark">SD</div><span>{appName}</span></div>
-          <span className="session-chip">{user.name} · {user.role}</span>
-          <span className="session-chip">Session: {sessionId.slice(0, 8)}</span>
-          <div className="topbar-actions">
-            <button type="button" className="secondary-button" onClick={() => void onLogout()}>Logout</button>
-          </div>
-        </nav>
-        <section className="hero-grid dashboard-hero">
-          <div>
-            <p className="eyebrow">{moduleLabels[activeModule]} workspace</p>
-            <h1>Repair workflow command center</h1>
-            <p className="hero-copy">
-              Modules are controlled by the logged-in profile. Admin users see the ERP control center plus Agent,
-              Technician, and Customer modules.
-            </p>
-          </div>
-          <aside className="hero-card">
-            <span>Operational snapshot</span>
-            <strong>{metrics.activeWorkItems} active WIs</strong>
-            <p>{metrics.lowStockParts} stock alerts · {currencyFormatter.format(metrics.estimatedRevenue)} estimate pipeline</p>
-          </aside>
-        </section>
-      </header>
-
-      <nav className="module-tabs" aria-label="Available modules">
-        {user.moduleAccess.map((moduleId) => (
-          <button className={moduleId === activeModule ? 'module-tab active' : 'module-tab'} key={moduleId} onClick={() => onModuleChange(moduleId)} type="button">
-            {moduleLabels[moduleId]} module
-          </button>
-        ))}
-      </nav>
-
-      <section className="section-card">
-        <p className="eyebrow">Module overview</p>
-        <h2>{moduleLabels[activeModule]} module</h2>
-        <p className="muted">{moduleDescriptions[activeModule]}</p>
-      </section>
-
-      <SyncStatus isApiBacked={serviceDesk.isApiBacked} isLoading={serviceDesk.isLoading} error={serviceDesk.error} onRefresh={serviceDesk.refresh} />
-
-      <section className="metrics-grid" aria-label="Operational metrics">
-        <MetricCard label="Active WIs" value={String(metrics.activeWorkItems)} helper="Open repair jobs" />
-        <MetricCard label="Awaiting approval" value={String(metrics.awaitingApproval)} helper="Estimates shared" />
-        <MetricCard label="Low-stock parts" value={String(metrics.lowStockParts)} helper="Inventory reorder alerts" />
-        <MetricCard label="Paid revenue" value={currencyFormatter.format(metrics.paidRevenue)} helper={`${currencyFormatter.format(metrics.invoicedRevenue)} invoiced`} />
-      </section>
-
-      {activeModule === 'admin' && <AdminView {...serviceDesk} currentUser={user} />}
-      {activeModule === 'agent' && <AgentView {...serviceDesk} />}
-      {activeModule === 'technician' && (
-        <TechnicianView
-          selectedTechnicianId={selectedTechnicianId}
-          setSelectedTechnicianId={setSelectedTechnicianId}
-          {...serviceDesk}
-        />
-      )}
-      {activeModule === 'customer' && <CustomerView {...serviceDesk} />}
-
-      <section className="section-card">
-        <div className="section-heading">
-          <div><p className="eyebrow">Service catalog</p><h2>Repair categories</h2></div>
-          <label className="filter-control">Device type
-            <select value={selectedDeviceType} onChange={(event) => setSelectedDeviceType(event.target.value as DeviceType | 'All')}>
-              <option value="All">All</option>
-              {deviceTypes.map((deviceType) => <option key={deviceType} value={deviceType}>{deviceType}</option>)}
-            </select>
-          </label>
+    <main className="creator-shell">
+      <aside className="creator-sidebar">
+        <div className="brand app-brand"><div className="brand-mark">SD</div><span>{appName}</span></div>
+        <div className="sidebar-section">
+          <span className="sidebar-label">Applications</span>
+          <button className="app-selector active" type="button"><span>🧩</span> Repair ERP</button>
         </div>
-        <div className="service-grid">
-          {visibleCategories.map((category) => (
-            <article className="service-card" key={category.id}>
-              <span className="pill">{category.deviceType}</span>
-              <h3>{category.title}</h3>
-              <p>{category.description}</p>
-              <ul>{category.commonIssues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
-              <footer><strong>From {currencyFormatter.format(category.startingPrice)}</strong><span>{category.averageTurnaround}</span></footer>
-            </article>
+        <div className="sidebar-section">
+          <span className="sidebar-label">Modules</span>
+          {user.moduleAccess.map((moduleId) => (
+            <button className={moduleId === activeModule ? 'nav-item active' : 'nav-item'} key={moduleId} onClick={() => onModuleChange(moduleId)} type="button">
+              <span>{moduleIcons[moduleId]}</span>
+              {moduleLabels[moduleId]} module
+            </button>
           ))}
         </div>
-      </section>
+        <div className="sidebar-card">
+          <strong>{serviceDesk.isApiBacked ? 'PostgreSQL API' : 'Local demo'}</strong>
+          <span>{serviceDesk.isLoading ? 'Syncing records…' : 'Records ready'}</span>
+          {serviceDesk.error && <small className="sync-error">{serviceDesk.error}</small>}
+        </div>
+      </aside>
 
-      {(activeModule === 'admin' || activeModule === 'agent' || activeModule === 'technician') && (
-        <InventoryView {...serviceDesk} canManage={activeModule === 'admin' || activeModule === 'agent'} canReset={user.profile === 'admin'} />
-      )}
+      <section className="creator-main">
+        <header className="creator-topbar">
+          <div>
+            <p className="eyebrow">{activeLabel} workspace</p>
+            <h1>{activeLabel} module</h1>
+            <p>{moduleDescriptions[activeModule]}</p>
+          </div>
+          <div className="user-menu">
+            <span>{user.name}</span>
+            <small>{user.role} · Session {sessionId.slice(0, 8)}</small>
+            <button type="button" className="secondary-button" onClick={() => void onLogout()}>Logout</button>
+          </div>
+        </header>
+
+        <SyncStatus isApiBacked={serviceDesk.isApiBacked} isLoading={serviceDesk.isLoading} error={serviceDesk.error} onRefresh={serviceDesk.refresh} />
+
+        <section className="creator-kpi-row" aria-label="Operational metrics">
+          <MetricCard label="Active WIs" value={String(metrics.activeWorkItems)} helper="Open repair jobs" />
+          <MetricCard label="Awaiting approval" value={String(metrics.awaitingApproval)} helper="Estimate decisions" />
+          <MetricCard label="Stock alerts" value={String(metrics.lowStockParts)} helper="Low inventory SKUs" />
+          <MetricCard label="Paid revenue" value={currencyFormatter.format(metrics.paidRevenue)} helper={`${currencyFormatter.format(metrics.invoicedRevenue)} invoiced`} />
+        </section>
+
+        <section className="creator-page">
+          {activeModule === 'admin' && <AdminView {...serviceDesk} currentUser={user} />}
+          {activeModule === 'agent' && <AgentView {...serviceDesk} />}
+          {activeModule === 'technician' && (
+            <TechnicianView
+              selectedTechnicianId={selectedTechnicianId}
+              setSelectedTechnicianId={setSelectedTechnicianId}
+              {...serviceDesk}
+            />
+          )}
+          {activeModule === 'customer' && <CustomerView {...serviceDesk} />}
+        </section>
+
+        <ServiceCatalog selectedDeviceType={selectedDeviceType} setSelectedDeviceType={setSelectedDeviceType} visibleCategories={visibleCategories} />
+
+        {(activeModule === 'admin' || activeModule === 'agent' || activeModule === 'technician') && (
+          <InventoryView {...serviceDesk} canManage={activeModule === 'admin' || activeModule === 'agent'} canReset={user.profile === 'admin'} />
+        )}
+      </section>
     </main>
   );
 }
@@ -294,6 +295,7 @@ function AdminView({ state, createInvoice, updateInvoiceStatus, currentUser }: D
     { id: 'user-technician', name: 'Technician User', email: 'tech@servicedesk.local', role: 'Technician', profile: 'technician', moduleAccess: ['technician'], active: true, createdAt: 'Local demo' },
     { id: 'user-customer', name: 'Customer User', email: 'customer@servicedesk.local', role: 'Customer', profile: 'customer', moduleAccess: ['customer'], active: true, createdAt: 'Local demo' },
   ];
+  const [activeView, setActiveView] = useState<'overview' | 'users' | 'customers' | 'technicians' | 'invoices'>('overview');
   const [users, setUsers] = useState<ManagedUser[]>(() => (isApiPersistenceEnabled ? [] : localDemoManagedUsers));
   const [userDraft, setUserDraft] = useState<UserDraft>(blankUser);
   const [userError, setUserError] = useState<string | null>(null);
@@ -348,132 +350,179 @@ function AdminView({ state, createInvoice, updateInvoiceStatus, currentUser }: D
   };
 
   return (
-    <section className="admin-grid">
-      <section className="section-card">
-        <p className="eyebrow">Admin ERP dashboard</p>
-        <h2>Business control center</h2>
-        <div className="admin-metric-list">
+    <ModuleFrame
+      title="Admin control center"
+      subtitle="Creator-style reports and forms for user administration, master data, billing, and business monitoring."
+      views={[
+        { id: 'overview', label: 'Overview' },
+        { id: 'users', label: 'Users' },
+        { id: 'customers', label: 'Customers' },
+        { id: 'technicians', label: 'Technicians' },
+        { id: 'invoices', label: 'Invoices' },
+      ]}
+      activeView={activeView}
+      onViewChange={(view) => setActiveView(view as typeof activeView)}
+    >
+      {activeView === 'overview' && (
+        <div className="creator-report-grid">
           <MetricCard label="Customers" value={String(state.customers.length)} helper="Customer master records" />
           <MetricCard label="Technicians" value={String(technicians.length)} helper="Repair bench users" />
           <MetricCard label="Invoices" value={String(state.invoices.length)} helper={`${currencyFormatter.format(metrics.invoicedRevenue)} total`} />
           <MetricCard label="Parts" value={String(state.inventoryParts.length)} helper="Inventory SKUs" />
+          <RecordTable
+            title="Recent work items"
+            rows={state.workItems.slice(0, 6).map((item) => ({ id: item.id, primary: item.deviceModel, secondary: `${item.customerName} · ${item.status}`, meta: currencyFormatter.format(item.estimatedPrice) }))}
+          />
+          <RecordTable
+            title="Low stock alerts"
+            rows={state.inventoryParts.filter((part) => part.quantity <= part.reorderLevel).map((part) => ({ id: part.sku, primary: part.name, secondary: `${part.quantity} available · reorder at ${part.reorderLevel}`, meta: currencyFormatter.format(part.unitCost) }))}
+          />
         </div>
-      </section>
+      )}
 
-      <section className="section-card split-section">
-        <div>
-          <p className="eyebrow">User management</p>
-          <h2>Create user</h2>
-          <form className="booking-form compact-form" onSubmit={(event) => void submitUser(event)}>
-            <label>Name<input required value={userDraft.name} onChange={(event) => setUserDraft({ ...userDraft, name: event.target.value })} placeholder="New staff or customer" /></label>
-            <label>Email<input required type="email" value={userDraft.email} onChange={(event) => setUserDraft({ ...userDraft, email: event.target.value })} placeholder="name@example.com" /></label>
-            <div className="form-row"><label>Profile<select value={userDraft.profile} onChange={(event) => setUserDraft({ ...userDraft, profile: event.target.value as AuthProfile })}>{authProfiles.map((profile) => <option key={profile} value={profile}>{profile}</option>)}</select></label><label>Password<input required value={userDraft.password} onChange={(event) => setUserDraft({ ...userDraft, password: event.target.value })} placeholder="Minimum 8 chars" /></label></div>
-            <label className="inline-check"><input type="checkbox" checked={userDraft.active} onChange={(event) => setUserDraft({ ...userDraft, active: event.target.checked })} /> Active user</label>
-            {userError && <div className="login-error">{userError}</div>}
-            <button className="primary-button" type="submit">Create user</button>
-          </form>
-        </div>
-        <div className="table-card">
-          <h3>Users</h3>
-          {users.map((managedUser) => (
-            <div className="table-row" key={managedUser.id}>
-              <div><strong>{managedUser.name}</strong><span>{managedUser.email}</span></div>
-              <span className="pill">{managedUser.profile}</span>
-              <button className={managedUser.active ? 'danger-button' : 'secondary-dark-button'} type="button" onClick={() => void toggleUser(managedUser)} disabled={managedUser.id === currentUser.id}>{managedUser.active ? 'Deactivate' : 'Activate'}</button>
-            </div>
-          ))}
-        </div>
-      </section>
+      {activeView === 'users' && (
+        <CreatorSplit>
+          <CreatorFormCard title="Create user" eyebrow="User form">
+            <form className="creator-form" onSubmit={(event) => void submitUser(event)}>
+              <label>Name<input required value={userDraft.name} onChange={(event) => setUserDraft({ ...userDraft, name: event.target.value })} placeholder="New staff or customer" /></label>
+              <label>Email<input required type="email" value={userDraft.email} onChange={(event) => setUserDraft({ ...userDraft, email: event.target.value })} placeholder="name@example.com" /></label>
+              <div className="form-row"><label>Profile<select value={userDraft.profile} onChange={(event) => setUserDraft({ ...userDraft, profile: event.target.value as AuthProfile })}>{authProfiles.map((profile) => <option key={profile} value={profile}>{profile}</option>)}</select></label><label>Password<input required value={userDraft.password} onChange={(event) => setUserDraft({ ...userDraft, password: event.target.value })} placeholder="Minimum 8 chars" /></label></div>
+              <label className="inline-check"><input type="checkbox" checked={userDraft.active} onChange={(event) => setUserDraft({ ...userDraft, active: event.target.checked })} /> Active user</label>
+              {userError && <div className="login-error">{userError}</div>}
+              <button className="primary-button" type="submit">Create user</button>
+            </form>
+          </CreatorFormCard>
+          <div className="creator-list-panel">
+            <ListHeader title="Users report" count={users.length} />
+            {users.map((managedUser) => (
+              <div className="record-row" key={managedUser.id}>
+                <div><strong>{managedUser.name}</strong><span>{managedUser.email}</span></div>
+                <span className="pill">{managedUser.profile}</span>
+                <button className={managedUser.active ? 'danger-button' : 'secondary-dark-button'} type="button" onClick={() => void toggleUser(managedUser)} disabled={managedUser.id === currentUser.id}>{managedUser.active ? 'Deactivate' : 'Activate'}</button>
+              </div>
+            ))}
+          </div>
+        </CreatorSplit>
+      )}
 
-      <section className="section-card split-section">
-        <div>
-          <p className="eyebrow">Invoices & payments</p>
-          <h2>Create invoice</h2>
-          <form className="booking-form compact-form" onSubmit={submitInvoice}>
-            <label>Work item<select value={invoiceDraft.workItemId} onChange={(event) => {
-              const item = state.workItems.find((workItem) => workItem.id === event.target.value);
-              setInvoiceDraft({ ...invoiceDraft, workItemId: event.target.value, amount: item?.estimatedPrice ?? invoiceDraft.amount });
-            }}>{state.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} · {item.customerName} · {item.deviceModel}</option>)}</select></label>
-            <label>Amount<input type="number" min="1" value={invoiceDraft.amount} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, amount: Number(event.target.value) })} /></label>
-            <label>Notes<textarea value={invoiceDraft.notes} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, notes: event.target.value })} placeholder={selectedWorkItem?.requiredChanges ?? 'Invoice notes'} /></label>
-            <button className="primary-button" type="submit">Issue invoice</button>
-          </form>
-        </div>
-        <InvoiceList invoices={state.invoices} updateInvoiceStatus={updateInvoiceStatus} />
-      </section>
+      {activeView === 'customers' && <RecordTable title="Customer master" rows={state.customers.map((customer) => ({ id: customer.id, primary: customer.name, secondary: `${customer.phone} · ${customer.email}`, meta: `${state.workItems.filter((item) => item.customerId === customer.id).length} repairs` }))} />}
+      {activeView === 'technicians' && <RecordTable title="Technician master" rows={technicians.map((tech) => ({ id: tech.id, primary: tech.name, secondary: `${tech.email} · ${tech.specialties.join(', ')}`, meta: `${state.workItems.filter((item) => item.assignedTechnicianId === tech.id && !terminalStatuses.includes(item.status)).length} active` }))} />}
 
-      <section className="section-card split-section">
-        <MasterList title="Customer master" items={state.customers.map((customer) => ({ id: customer.id, primary: customer.name, secondary: `${customer.phone} · ${customer.email}` }))} />
-        <MasterList title="Technician master" items={technicians.map((tech) => ({ id: tech.id, primary: tech.name, secondary: `${tech.email} · ${tech.specialties.join(', ')}` }))} />
-      </section>
-    </section>
+      {activeView === 'invoices' && (
+        <CreatorSplit>
+          <CreatorFormCard title="Create invoice" eyebrow="Invoice form">
+            <form className="creator-form" onSubmit={submitInvoice}>
+              <label>Work item<select value={invoiceDraft.workItemId} onChange={(event) => {
+                const item = state.workItems.find((workItem) => workItem.id === event.target.value);
+                setInvoiceDraft({ ...invoiceDraft, workItemId: event.target.value, amount: item?.estimatedPrice ?? invoiceDraft.amount });
+              }}>{state.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} · {item.customerName} · {item.deviceModel}</option>)}</select></label>
+              <label>Amount<input type="number" min="1" value={invoiceDraft.amount} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, amount: Number(event.target.value) })} /></label>
+              <label>Notes<textarea value={invoiceDraft.notes} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, notes: event.target.value })} placeholder={selectedWorkItem?.requiredChanges ?? 'Invoice notes'} /></label>
+              <button className="primary-button" type="submit">Issue invoice</button>
+            </form>
+          </CreatorFormCard>
+          <InvoiceList invoices={state.invoices} updateInvoiceStatus={updateInvoiceStatus} />
+        </CreatorSplit>
+      )}
+    </ModuleFrame>
   );
 }
 
 function AgentView({ state, createWorkItem, updateWorkItem, cancelWorkItem }: DeskActions) {
+  const [activeView, setActiveView] = useState<'new' | 'queue' | 'walkins'>('new');
   const [draft, setDraft] = useState<WorkItemDraft>(blankDraft);
   const [query, setQuery] = useState('');
+  const [selectedId, setSelectedId] = useState(state.workItems[0]?.id ?? '');
+  const [submissionNotice, setSubmissionNotice] = useState<{ customer: string; device: string } | null>(null);
 
   const filtered = state.workItems.filter((item) =>
     `${item.id} ${item.customerName} ${item.deviceModel} ${item.status}`.toLowerCase().includes(query.toLowerCase()),
   );
+  const walkIns = filtered.filter((item) => item.source === 'Walk-in');
+  const list = activeView === 'walkins' ? walkIns : filtered;
+  const selected = state.workItems.find((item) => item.id === selectedId) ?? list[0];
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    setSubmissionNotice({ customer: draft.customerName, device: draft.deviceModel });
     createWorkItem(draft);
     setDraft(blankDraft);
+    setActiveView('queue');
   };
 
   return (
-    <section className="section-card split-section wide-left">
-      <div>
-        <p className="eyebrow">Agent module</p>
-        <h2>Create a work item</h2>
-        <p className="muted">Agents capture online and walk-in customer requests, then assign the WI to a technician.</p>
-        <form className="booking-form" onSubmit={submit}>
-          <label>Customer name<input required value={draft.customerName} onChange={(event) => setDraft({ ...draft, customerName: event.target.value })} placeholder="Jane Doe" /></label>
-          <div className="form-row"><label>Phone<input required value={draft.customerPhone} onChange={(event) => setDraft({ ...draft, customerPhone: event.target.value })} placeholder="+1 555 0100" /></label><label>Email<input required type="email" value={draft.customerEmail} onChange={(event) => setDraft({ ...draft, customerEmail: event.target.value })} placeholder="jane@example.com" /></label></div>
-          <div className="form-row"><label>Source<select value={draft.source} onChange={(event) => setDraft({ ...draft, source: event.target.value as WorkItemDraft['source'] })}><option>Walk-in</option><option>Online</option></select></label><label>Priority<select value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: event.target.value as WorkItemDraft['priority'] })}>{priorities.map((priority) => <option key={priority}>{priority}</option>)}</select></label></div>
-          <div className="form-row"><label>Device type<select value={draft.deviceType} onChange={(event) => setDraft({ ...draft, deviceType: event.target.value as DeviceType })}>{deviceTypes.map((type) => <option key={type}>{type}</option>)}</select></label><label>Assigned technician<select value={draft.assignedTechnicianId} onChange={(event) => setDraft({ ...draft, assignedTechnicianId: event.target.value })}>{technicians.map((tech) => <option value={tech.id} key={tech.id}>{tech.name}</option>)}</select></label></div>
-          <label>Device model<input required value={draft.deviceModel} onChange={(event) => setDraft({ ...draft, deviceModel: event.target.value })} placeholder="MacBook Pro M2 / iPhone 14 / Gaming PC" /></label>
-          <label>Serial number<input value={draft.serialNumber} onChange={(event) => setDraft({ ...draft, serialNumber: event.target.value })} placeholder="Optional serial / IMEI" /></label>
-          <label>Issue summary<textarea required value={draft.issueSummary} onChange={(event) => setDraft({ ...draft, issueSummary: event.target.value })} placeholder="Describe symptoms, damage, accessories received, and urgency" /></label>
-          <button type="submit" className="primary-button">Create WI</button>
-        </form>
-      </div>
-      <div>
-        <div className="section-heading compact"><div><p className="eyebrow">Queue control</p><h2>All work items</h2></div></div>
-        <input className="search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search WI, customer, device, status" />
-        <div className="ticket-board single-column">
-          {filtered.map((item) => (
-            <WorkItemCard key={item.id} item={item}>
+    <ModuleFrame
+      title="Agent desk"
+      subtitle="Create customer requests and manage the repair queue using form and report views."
+      views={[{ id: 'new', label: 'New request' }, { id: 'queue', label: 'All work items' }, { id: 'walkins', label: 'Walk-ins' }]}
+      activeView={activeView}
+      onViewChange={(view) => setActiveView(view as typeof activeView)}
+    >
+      {activeView === 'new' ? (
+        <CreatorSplit>
+          <CreatorFormCard title="Create a work item" eyebrow="Request form">
+            <p className="muted">Agents capture online and walk-in customer requests, then assign the WI to a technician.</p>
+            <form className="creator-form" onSubmit={submit}>
+              <label>Customer name<input required value={draft.customerName} onChange={(event) => setDraft({ ...draft, customerName: event.target.value })} placeholder="Jane Doe" /></label>
+              <div className="form-row"><label>Phone<input required value={draft.customerPhone} onChange={(event) => setDraft({ ...draft, customerPhone: event.target.value })} placeholder="+1 555 0100" /></label><label>Email<input required type="email" value={draft.customerEmail} onChange={(event) => setDraft({ ...draft, customerEmail: event.target.value })} placeholder="jane@example.com" /></label></div>
+              <div className="form-row"><label>Source<select value={draft.source} onChange={(event) => setDraft({ ...draft, source: event.target.value as WorkItemDraft['source'] })}><option>Walk-in</option><option>Online</option></select></label><label>Priority<select value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: event.target.value as WorkItemDraft['priority'] })}>{priorities.map((priority) => <option key={priority}>{priority}</option>)}</select></label></div>
+              <div className="form-row"><label>Device type<select value={draft.deviceType} onChange={(event) => setDraft({ ...draft, deviceType: event.target.value as DeviceType })}>{deviceTypes.map((type) => <option key={type}>{type}</option>)}</select></label><label>Assigned technician<select value={draft.assignedTechnicianId} onChange={(event) => setDraft({ ...draft, assignedTechnicianId: event.target.value })}>{technicians.map((tech) => <option value={tech.id} key={tech.id}>{tech.name}</option>)}</select></label></div>
+              <label>Device model<input required value={draft.deviceModel} onChange={(event) => setDraft({ ...draft, deviceModel: event.target.value })} placeholder="MacBook Pro M2 / iPhone 14 / Gaming PC" /></label>
+              <label>Serial number<input value={draft.serialNumber} onChange={(event) => setDraft({ ...draft, serialNumber: event.target.value })} placeholder="Optional serial / IMEI" /></label>
+              <label>Issue summary<textarea required value={draft.issueSummary} onChange={(event) => setDraft({ ...draft, issueSummary: event.target.value })} placeholder="Describe symptoms, damage, accessories received, and urgency" /></label>
+              <button type="submit" className="primary-button">Create WI</button>
+            </form>
+          </CreatorFormCard>
+          <RecordTable title="Recently created" rows={state.workItems.slice(0, 5).map(workItemToRow)} />
+        </CreatorSplit>
+      ) : (
+        <>
+          {submissionNotice && <div className="success-banner">Created WI for <strong>{submissionNotice.customer}</strong> · {submissionNotice.device}</div>}
+          <CreatorRecordBrowser
+            title={activeView === 'walkins' ? 'Walk-in requests' : 'All work items'}
+            records={list}
+          selected={selected}
+          query={query}
+          setQuery={setQuery}
+          setSelectedId={setSelectedId}
+          detail={selected && (
+            <WorkItemCard item={selected}>
               <div className="card-actions">
-                <select value={item.assignedTechnicianId} onChange={(event) => updateWorkItem(item.id, { assignedTechnicianId: event.target.value, status: 'Assigned' }, 'Agent', 'Agent reassigned the work item.')}>
+                <select value={selected.assignedTechnicianId} onChange={(event) => updateWorkItem(selected.id, { assignedTechnicianId: event.target.value, status: 'Assigned' }, 'Agent', 'Agent reassigned the work item.')}>
                   {technicians.map((tech) => <option value={tech.id} key={tech.id}>{tech.name}</option>)}
                 </select>
-                {!terminalStatuses.includes(item.status) && <button type="button" className="danger-button" onClick={() => cancelWorkItem(item.id, 'Agent')}>Cancel</button>}
+                {!terminalStatuses.includes(selected.status) && <button type="button" className="danger-button" onClick={() => cancelWorkItem(selected.id, 'Agent')}>Cancel</button>}
               </div>
             </WorkItemCard>
-          ))}
-        </div>
-      </div>
-    </section>
+          )}
+          />
+        </>
+      )}
+    </ModuleFrame>
   );
 }
 
 function TechnicianView({ state, selectedTechnicianId, setSelectedTechnicianId, updateWorkItem, adjustInventory }: DeskActions & { selectedTechnicianId: string; setSelectedTechnicianId: (id: string) => void }) {
+  const [activeView, setActiveView] = useState<'assigned' | 'estimates' | 'repair'>('assigned');
   const assignedItems = state.workItems.filter((item) => item.assignedTechnicianId === selectedTechnicianId && item.status !== 'Cancelled');
+  const estimateItems = assignedItems.filter((item) => item.status === 'Diagnosis' || item.status === 'Estimate Shared');
+  const repairItems = assignedItems.filter((item) => item.status === 'Customer Approved' || item.status === 'In Repair' || item.status === 'Waiting for Parts' || item.status === 'Quality Check');
+  const visibleItems = activeView === 'estimates' ? estimateItems : activeView === 'repair' ? repairItems : assignedItems;
 
   return (
-    <section className="section-card">
-      <div className="section-heading">
-        <div><p className="eyebrow">Technician module</p><h2>Analysis, estimates, and repair updates</h2></div>
-        <label className="filter-control">Technician<select value={selectedTechnicianId} onChange={(event) => setSelectedTechnicianId(event.target.value)}>{technicians.map((tech) => <option value={tech.id} key={tech.id}>{tech.name}</option>)}</select></label>
+    <ModuleFrame
+      title="Analysis, estimates, and repair updates"
+      subtitle="Technicians work from assigned reports, open a record, update diagnosis, consume parts, and move status forward."
+      views={[{ id: 'assigned', label: 'Assigned jobs' }, { id: 'estimates', label: 'Estimates' }, { id: 'repair', label: 'In repair' }]}
+      activeView={activeView}
+      onViewChange={(view) => setActiveView(view as typeof activeView)}
+      toolbar={<label className="filter-control compact-control">Technician<select value={selectedTechnicianId} onChange={(event) => setSelectedTechnicianId(event.target.value)}>{technicians.map((tech) => <option value={tech.id} key={tech.id}>{tech.name}</option>)}</select></label>}
+    >
+      <div className="creator-record-grid">
+        {visibleItems.map((item) => <TechnicianWorkItem key={item.id} item={item} parts={state.inventoryParts} updateWorkItem={updateWorkItem} adjustInventory={adjustInventory} />)}
+        {!visibleItems.length && <EmptyState title="No records in this view" body="Change the technician or view filter to see more work items." />}
       </div>
-      <div className="ticket-board">
-        {assignedItems.map((item) => <TechnicianWorkItem key={item.id} item={item} parts={state.inventoryParts} updateWorkItem={updateWorkItem} adjustInventory={adjustInventory} />)}
-      </div>
-    </section>
+    </ModuleFrame>
   );
 }
 
@@ -497,7 +546,7 @@ function TechnicianWorkItem({ item, parts, updateWorkItem, adjustInventory }: { 
   };
 
   return (
-    <article className="ticket-card editor-card">
+    <article className="creator-record-card ticket-card editor-card">
       <WorkItemCard item={item} />
       <label>Analysis<textarea value={analysis} onChange={(event) => setAnalysis(event.target.value)} /></label>
       <label>Required changes<textarea value={requiredChanges} onChange={(event) => setRequiredChanges(event.target.value)} /></label>
@@ -510,22 +559,61 @@ function TechnicianWorkItem({ item, parts, updateWorkItem, adjustInventory }: { 
 
 function CustomerView({ state, approveEstimate }: DeskActions) {
   const [selectedCustomerId, setSelectedCustomerId] = useState(state.customers[0]?.id ?? '');
+  const [selectedId, setSelectedId] = useState('');
   const customerItems = state.workItems.filter((item) => item.customerId === selectedCustomerId);
+  const selected = customerItems.find((item) => item.id === selectedId) ?? customerItems[0];
 
   return (
-    <section className="section-card">
-      <div className="section-heading">
-        <div><p className="eyebrow">Customer module</p><h2>Realtime repair progress</h2></div>
-        <label className="filter-control">Customer<select value={selectedCustomerId} onChange={(event) => setSelectedCustomerId(event.target.value)}>{state.customers.map((customer) => <option value={customer.id} key={customer.id}>{customer.name}</option>)}</select></label>
-      </div>
-      <div className="ticket-board">
-        {customerItems.map((item) => (
-          <article className="ticket-card" key={item.id}>
-            <WorkItemCard item={item} />
-            {item.status === 'Estimate Shared' && !item.approvedByCustomer && <button type="button" className="primary-button" onClick={() => approveEstimate(item.id)}>Approve estimate</button>}
-            <ProgressTracker status={item.status} />
+    <ModuleFrame
+      title="Realtime repair progress"
+      subtitle="A customer-facing report and detail view for tracking repair status, estimates, and updates."
+      views={[{ id: 'progress', label: 'My repairs' }]}
+      activeView="progress"
+      onViewChange={() => undefined}
+      toolbar={<label className="filter-control compact-control">Customer<select value={selectedCustomerId} onChange={(event) => setSelectedCustomerId(event.target.value)}>{state.customers.map((customer) => <option value={customer.id} key={customer.id}>{customer.name}</option>)}</select></label>}
+    >
+      <CreatorRecordBrowser
+        title="My repair records"
+        records={customerItems}
+        selected={selected}
+        query=""
+        setQuery={() => undefined}
+        setSelectedId={setSelectedId}
+        hideSearch
+        detail={selected && (
+          <article className="customer-detail-card">
+            <WorkItemCard item={selected} />
+            {selected.status === 'Estimate Shared' && !selected.approvedByCustomer && <button type="button" className="primary-button" onClick={() => approveEstimate(selected.id)}>Approve estimate</button>}
+            <ProgressTracker status={selected.status} />
             <h3>Live updates</h3>
-            <ul className="timeline">{item.updates.map((update) => <li key={update.id}><strong>{update.actor}</strong> · {update.message}<span>{update.at}</span></li>)}</ul>
+            <ul className="timeline">{selected.updates.map((update) => <li key={update.id}><strong>{update.actor}</strong> · {update.message}<span>{update.at}</span></li>)}</ul>
+          </article>
+        )}
+      />
+    </ModuleFrame>
+  );
+}
+
+function ServiceCatalog({ selectedDeviceType, setSelectedDeviceType, visibleCategories }: { selectedDeviceType: DeviceType | 'All'; setSelectedDeviceType: (value: DeviceType | 'All') => void; visibleCategories: typeof serviceCategories }) {
+  return (
+    <section className="creator-panel service-catalog-panel">
+      <div className="creator-panel-header">
+        <div><p className="eyebrow">Service catalog</p><h2>Repair categories</h2></div>
+        <label className="filter-control compact-control">Device type
+          <select value={selectedDeviceType} onChange={(event) => setSelectedDeviceType(event.target.value as DeviceType | 'All')}>
+            <option value="All">All</option>
+            {deviceTypes.map((deviceType) => <option key={deviceType} value={deviceType}>{deviceType}</option>)}
+          </select>
+        </label>
+      </div>
+      <div className="service-grid">
+        {visibleCategories.map((category) => (
+          <article className="service-card" key={category.id}>
+            <span className="pill">{category.deviceType}</span>
+            <h3>{category.title}</h3>
+            <p>{category.description}</p>
+            <ul>{category.commonIssues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
+            <footer><strong>From {currencyFormatter.format(category.startingPrice)}</strong><span>{category.averageTurnaround}</span></footer>
           </article>
         ))}
       </div>
@@ -533,7 +621,7 @@ function CustomerView({ state, approveEstimate }: DeskActions) {
   );
 }
 
-function WorkItemCard({ item, children }: { item: WorkItem; children?: React.ReactNode }) {
+function WorkItemCard({ item, children }: { item: WorkItem; children?: ReactNode }) {
   const technician = technicians.find((tech) => tech.id === item.assignedTechnicianId);
   return (
     <article className="workitem-summary">
@@ -541,10 +629,10 @@ function WorkItemCard({ item, children }: { item: WorkItem; children?: React.Rea
       <h3>{item.deviceModel}</h3>
       <p>{item.issueSummary}</p>
       <dl>
-        <div><dt>Customer</dt><dd>{item.customerName}</dd></div><div><dt>Source</dt><dd>{item.source}</dd></div><div><dt>Priority</dt><dd>{item.priority}</dd></div><div><dt>Technician</dt><dd>{technician?.name ?? 'Unassigned'}</dd></div><div><dt>Estimate</dt><dd>{currencyFormatter.format(item.estimatedPrice)}</dd></div><div><dt>Promised</dt><dd>{item.promisedBy}</dd></div><div><dt>Serial</dt><dd>{item.serialNumber}</dd></div><div><dt>Parts</dt><dd>{item.partsRequired.length ? item.partsRequired.join(', ') : 'None yet'}</dd></div>
+        <div><dt>Customer</dt><dd>{item.customerName}</dd></div><div><dt>Source</dt><dd>{item.source}</dd></div><div><dt>Priority</dt><dd>{item.priority}</dd></div><div><dt>Technician</dt><dd>{technician?.name ?? 'Unassigned'}</dd></div><div><dt>Estimate</dt><dd>{currencyFormatter.format(item.estimatedPrice)}</dd></div><div><dt>Promised</dt><dd>{item.promisedBy}</dd></div><div><dt>Serial</dt><dd>{item.serialNumber || 'Not captured'}</dd></div><div><dt>Parts</dt><dd>{item.partsRequired.length ? item.partsRequired.join(', ') : 'None yet'}</dd></div>
       </dl>
-      <p><strong>Analysis:</strong> {item.analysis}</p>
-      <p><strong>Changes:</strong> {item.requiredChanges}</p>
+      <p><strong>Analysis:</strong> {item.analysis || 'Pending technician analysis'}</p>
+      <p><strong>Changes:</strong> {item.requiredChanges || 'Pending estimate'}</p>
       {children}
     </article>
   );
@@ -559,41 +647,44 @@ function InventoryView({ state, adjustInventory, addInventoryPart, reset, canMan
   };
 
   return (
-    <section className="section-card split-section">
-      <div>
-        <p className="eyebrow">Inventory</p><h2>Spare parts readiness</h2>
-        {canManage ? (
-          <form className="booking-form compact-form" onSubmit={submit}>
-            <label>SKU<input required value={part.sku} onChange={(event) => setPart({ ...part, sku: event.target.value })} placeholder="BAT-MBP-2024" /></label>
-            <label>Name<input required value={part.name} onChange={(event) => setPart({ ...part, name: event.target.value })} placeholder="MacBook Battery" /></label>
-            <div className="form-row"><label>Device<select value={part.compatibleWith[0]} onChange={(event) => setPart({ ...part, compatibleWith: [event.target.value as DeviceType] })}>{deviceTypes.map((type) => <option key={type}>{type}</option>)}</select></label><label>Quantity<input type="number" value={part.quantity} onChange={(event) => setPart({ ...part, quantity: Number(event.target.value) })} /></label></div>
-            <div className="form-row"><label>Reorder at<input type="number" value={part.reorderLevel} onChange={(event) => setPart({ ...part, reorderLevel: Number(event.target.value) })} /></label><label>Cost<input type="number" value={part.unitCost} onChange={(event) => setPart({ ...part, unitCost: Number(event.target.value) })} /></label></div>
-            <div className="card-actions"><button className="primary-button" type="submit">Add / update part</button>{canReset && <button className="secondary-dark-button" type="button" onClick={reset}>Reset demo data</button>}</div>
-          </form>
-        ) : <p className="muted">Technicians can view and consume parts. Agents/admins manage part records.</p>}
-      </div>
-      <div className="inventory-list">
-        {state.inventoryParts.map((inventoryPart) => {
-          const lowStock = inventoryPart.quantity <= inventoryPart.reorderLevel;
-          return (
-            <article className="inventory-row" key={inventoryPart.sku}>
-              <div><strong>{inventoryPart.name}</strong><span>{inventoryPart.sku} · {inventoryPart.compatibleWith.join(', ')}</span></div>
-              <div className="inventory-meta"><span className={lowStock ? 'stock-low' : 'stock-ok'}>{inventoryPart.quantity} in stock</span><small>Reorder at {inventoryPart.reorderLevel} · Cost {currencyFormatter.format(inventoryPart.unitCost)}</small></div>
-              <div className="stepper"><button type="button" onClick={() => adjustInventory(inventoryPart.sku, -1)}>-</button><button type="button" onClick={() => adjustInventory(inventoryPart.sku, 1)}>+</button></div>
-            </article>
-          );
-        })}
-      </div>
+    <section className="creator-panel">
+      <div className="creator-panel-header"><div><p className="eyebrow">Inventory application view</p><h2>Spare parts</h2></div></div>
+      <CreatorSplit>
+        <CreatorFormCard title="Part form" eyebrow="Inventory">
+          {canManage ? (
+            <form className="creator-form" onSubmit={submit}>
+              <label>SKU<input required value={part.sku} onChange={(event) => setPart({ ...part, sku: event.target.value })} placeholder="BAT-MBP-2024" /></label>
+              <label>Name<input required value={part.name} onChange={(event) => setPart({ ...part, name: event.target.value })} placeholder="MacBook Battery" /></label>
+              <div className="form-row"><label>Device<select value={part.compatibleWith[0]} onChange={(event) => setPart({ ...part, compatibleWith: [event.target.value as DeviceType] })}>{deviceTypes.map((type) => <option key={type}>{type}</option>)}</select></label><label>Quantity<input type="number" value={part.quantity} onChange={(event) => setPart({ ...part, quantity: Number(event.target.value) })} /></label></div>
+              <div className="form-row"><label>Reorder at<input type="number" value={part.reorderLevel} onChange={(event) => setPart({ ...part, reorderLevel: Number(event.target.value) })} /></label><label>Cost<input type="number" value={part.unitCost} onChange={(event) => setPart({ ...part, unitCost: Number(event.target.value) })} /></label></div>
+              <div className="card-actions"><button className="primary-button" type="submit">Add / update part</button>{canReset && <button className="secondary-dark-button" type="button" onClick={reset}>Reset demo data</button>}</div>
+            </form>
+          ) : <p className="muted">Technicians can view and consume parts. Agents/admins manage part records.</p>}
+        </CreatorFormCard>
+        <div className="creator-list-panel">
+          <ListHeader title="Inventory report" count={state.inventoryParts.length} />
+          {state.inventoryParts.map((inventoryPart) => {
+            const lowStock = inventoryPart.quantity <= inventoryPart.reorderLevel;
+            return (
+              <article className="record-row inventory-record" key={inventoryPart.sku}>
+                <div><strong>{inventoryPart.name}</strong><span>{inventoryPart.sku} · {inventoryPart.compatibleWith.join(', ')}</span></div>
+                <div className="inventory-meta"><span className={lowStock ? 'stock-low' : 'stock-ok'}>{inventoryPart.quantity} in stock</span><small>Reorder at {inventoryPart.reorderLevel} · Cost {currencyFormatter.format(inventoryPart.unitCost)}</small></div>
+                <div className="stepper"><button type="button" onClick={() => adjustInventory(inventoryPart.sku, -1)}>-</button><button type="button" onClick={() => adjustInventory(inventoryPart.sku, 1)}>+</button></div>
+              </article>
+            );
+          })}
+        </div>
+      </CreatorSplit>
     </section>
   );
 }
 
 function InvoiceList({ invoices, updateInvoiceStatus }: { invoices: DeskActions['state']['invoices']; updateInvoiceStatus: DeskActions['updateInvoiceStatus'] }) {
   return (
-    <div className="table-card">
-      <h3>Invoice register</h3>
+    <div className="creator-list-panel">
+      <ListHeader title="Invoice register" count={invoices.length} />
       {invoices.map((invoice) => (
-        <div className="table-row" key={invoice.id}>
+        <div className="record-row" key={invoice.id}>
           <div><strong>{invoice.id} · {invoice.customerName}</strong><span>{invoice.workItemId} · {currencyFormatter.format(invoice.amount)} · {invoice.issuedAt}</span></div>
           <select value={invoice.status} onChange={(event) => updateInvoiceStatus(invoice.id, event.target.value as InvoiceStatus)}>
             {(['Draft', 'Issued', 'Paid', 'Void'] satisfies InvoiceStatus[]).map((status) => <option key={status}>{status}</option>)}
@@ -604,11 +695,73 @@ function InvoiceList({ invoices, updateInvoiceStatus }: { invoices: DeskActions[
   );
 }
 
-function MasterList({ title, items }: { title: string; items: Array<{ id: string; primary: string; secondary: string }> }) {
-  return <div className="table-card"><h3>{title}</h3>{items.map((item) => <div className="table-row" key={item.id}><div><strong>{item.primary}</strong><span>{item.id} · {item.secondary}</span></div></div>)}</div>;
+function ModuleFrame({ title, subtitle, views, activeView, onViewChange, toolbar, children }: { title: string; subtitle: string; views: Array<{ id: string; label: string }>; activeView: string; onViewChange: (view: string) => void; toolbar?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="module-frame">
+      <div className="module-header">
+        <div><p className="eyebrow">Module</p><h2>{title}</h2><p>{subtitle}</p></div>
+        {toolbar}
+      </div>
+      <div className="view-tabs" aria-label="Views">
+        {views.map((view) => <button type="button" key={view.id} className={activeView === view.id ? 'view-tab active' : 'view-tab'} onClick={() => onViewChange(view.id)}>{view.label}</button>)}
+      </div>
+      <div className="view-canvas">{children}</div>
+    </section>
+  );
 }
 
-function profileToRole(profile: AuthProfile) {
+function CreatorSplit({ children }: { children: ReactNode }) {
+  return <div className="creator-split">{children}</div>;
+}
+
+function CreatorFormCard({ title, eyebrow, children }: { title: string; eyebrow: string; children: ReactNode }) {
+  return <section className="creator-form-card"><p className="eyebrow">{eyebrow}</p><h3>{title}</h3>{children}</section>;
+}
+
+function CreatorRecordBrowser({ title, records, selected, query, setQuery, setSelectedId, detail, hideSearch = false }: { title: string; records: WorkItem[]; selected?: WorkItem; query: string; setQuery: (query: string) => void; setSelectedId: (id: string) => void; detail?: ReactNode; hideSearch?: boolean }) {
+  return (
+    <div className="record-browser">
+      <div className="creator-list-panel">
+        <ListHeader title={title} count={records.length} />
+        {!hideSearch && <input className="search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search records" />}
+        <div className="record-list">
+          {records.map((item) => (
+            <button type="button" className={selected?.id === item.id ? 'record-row selectable active' : 'record-row selectable'} key={item.id} onClick={() => setSelectedId(item.id)}>
+              <div><strong>{item.deviceModel}</strong><span>{item.id} · {item.customerName}</span></div>
+              <span className={`status ${item.status.toLowerCase().replaceAll(' ', '-')}`}>{item.status}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="creator-detail-panel">
+        {detail ?? <EmptyState title="Select a record" body="Choose a record from the report to open its detail view." />}
+      </div>
+    </div>
+  );
+}
+
+function RecordTable({ title, rows }: { title: string; rows: Array<{ id: string; primary: string; secondary: string; meta?: string }> }) {
+  return (
+    <div className="creator-list-panel">
+      <ListHeader title={title} count={rows.length} />
+      {rows.length ? rows.map((row) => <div className="record-row" key={row.id}><div><strong>{row.primary}</strong><span>{row.id} · {row.secondary}</span></div>{row.meta && <span className="record-meta">{row.meta}</span>}</div>) : <EmptyState title="No records" body="This report does not have records yet." />}
+    </div>
+  );
+}
+
+function ListHeader({ title, count }: { title: string; count: number }) {
+  return <div className="list-header"><h3>{title}</h3><span>{count} records</span></div>;
+}
+
+function EmptyState({ title, body }: { title: string; body: string }) {
+  return <div className="empty-state"><strong>{title}</strong><span>{body}</span></div>;
+}
+
+function workItemToRow(item: WorkItem) {
+  return { id: item.id, primary: item.deviceModel, secondary: `${item.customerName} · ${item.status}`, meta: currencyFormatter.format(item.estimatedPrice) };
+}
+
+function profileToRole(profile: AuthProfile): UserRole {
   return profile === 'admin' ? 'Admin' : profile === 'technician' ? 'Technician' : profile === 'customer' ? 'Customer' : 'Agent';
 }
 
