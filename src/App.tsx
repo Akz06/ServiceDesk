@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import { ProgressTracker } from './components/ProgressTracker';
 import { serviceCategories, technicians } from './data/repairShop';
 import {
+  authProfiles,
   currencyFormatter,
   defaultModuleForProfile,
   deviceTypes,
@@ -15,7 +16,21 @@ import { useAuth } from './hooks/useAuth';
 import { useServiceDesk } from './hooks/useServiceDesk';
 import { getInitialModuleFromUrl, getOrCreateSessionId, updateUrlForModule } from './services/routing';
 import { getMetrics, getNextStatuses } from './services/serviceDeskStore';
-import type { AuthUser, DeviceType, InventoryPart, ModuleId, WorkItem, WorkItemDraft, WorkItemStatus } from './types';
+import { isApiPersistenceEnabled, userApi } from './services/apiClient';
+import type {
+  AuthProfile,
+  AuthUser,
+  DeviceType,
+  InventoryPart,
+  InvoiceDraft,
+  InvoiceStatus,
+  ManagedUser,
+  ModuleId,
+  UserDraft,
+  WorkItem,
+  WorkItemDraft,
+  WorkItemStatus,
+} from './types';
 
 const supportEmail = import.meta.env.VITE_SUPPORT_EMAIL ?? 'support@example.com';
 const supportPhone = import.meta.env.VITE_SUPPORT_PHONE ?? '+1-555-0100';
@@ -41,6 +56,14 @@ const blankPart: InventoryPart = {
   quantity: 0,
   reorderLevel: 2,
   unitCost: 0,
+};
+
+const blankUser: UserDraft = {
+  name: '',
+  email: '',
+  profile: 'agent',
+  password: '',
+  active: true,
 };
 
 const demoCredentials = [
@@ -108,17 +131,17 @@ function HomePage({ auth, onLoginSuccess }: { auth: ReturnType<typeof useAuth>; 
       </nav>
       <section className="homepage-hero">
         <div className="homepage-copy">
-          <p className="eyebrow">Full-stack repair workflow platform</p>
-          <h1>Run your electronics repair shop from one service desk.</h1>
+          <p className="eyebrow">Full-stack repair ERP platform</p>
+          <h1>Run your electronics repair shop like a modern ERP.</h1>
           <p>
-            {appName} manages online and walk-in requests, technician diagnosis, repair estimates,
-            customer approvals, realtime-style progress tracking, and spare-parts inventory using a PostgreSQL-backed app.
+            {appName} combines repair request intake, technician workflow, customer progress, inventory,
+            user administration, invoicing, and reporting in one PostgreSQL-backed application.
           </p>
           <div className="feature-list">
-            <Feature title="Agent module" body="Create work items, capture customer/device details, and assign technicians." />
-            <Feature title="Technician module" body="Diagnose devices, estimate pricing, update repair state, and consume inventory." />
-            <Feature title="Customer module" body="Let customers follow progress and approve estimates through a secure login." />
-            <Feature title="Admin profile" body="Admins can access all modules from one workspace." />
+            <Feature title="Admin console" body="Manage users, profiles, invoices, master data, reports, and stock alerts." />
+            <Feature title="Agent desk" body="Create online or walk-in work items and assign technicians." />
+            <Feature title="Technician bay" body="Diagnose devices, share estimates, consume parts, and update repair status." />
+            <Feature title="Customer portal" body="Customers can securely view repair progress and approve estimates." />
           </div>
         </div>
         <aside className="login-panel" aria-label="Login panel">
@@ -187,14 +210,14 @@ function Workspace({
             <p className="eyebrow">{moduleLabels[activeModule]} workspace</p>
             <h1>Repair workflow command center</h1>
             <p className="hero-copy">
-              Modules are controlled by the logged-in user profile. Admins see Agent, Technician, and Customer modules;
-              other profiles see only the module assigned to them.
+              Modules are controlled by the logged-in profile. Admin users see the ERP control center plus Agent,
+              Technician, and Customer modules.
             </p>
           </div>
           <aside className="hero-card">
             <span>Operational snapshot</span>
             <strong>{metrics.activeWorkItems} active WIs</strong>
-            <p>{metrics.lowStockParts} stock alerts · {currencyFormatter.format(metrics.estimatedRevenue)} estimated value</p>
+            <p>{metrics.lowStockParts} stock alerts · {currencyFormatter.format(metrics.estimatedRevenue)} estimate pipeline</p>
           </aside>
         </section>
       </header>
@@ -219,10 +242,11 @@ function Workspace({
         <MetricCard label="Active WIs" value={String(metrics.activeWorkItems)} helper="Open repair jobs" />
         <MetricCard label="Awaiting approval" value={String(metrics.awaitingApproval)} helper="Estimates shared" />
         <MetricCard label="Low-stock parts" value={String(metrics.lowStockParts)} helper="Inventory reorder alerts" />
-        <MetricCard label="Revenue pipeline" value={currencyFormatter.format(metrics.estimatedRevenue)} helper="Total estimates" />
+        <MetricCard label="Paid revenue" value={currencyFormatter.format(metrics.paidRevenue)} helper={`${currencyFormatter.format(metrics.invoicedRevenue)} invoiced`} />
       </section>
 
-      {activeModule === 'agent' && <AgentView {...serviceDesk} canReset={user.profile === 'admin'} />}
+      {activeModule === 'admin' && <AdminView {...serviceDesk} currentUser={user} />}
+      {activeModule === 'agent' && <AgentView {...serviceDesk} />}
       {activeModule === 'technician' && (
         <TechnicianView
           selectedTechnicianId={selectedTechnicianId}
@@ -255,18 +279,138 @@ function Workspace({
         </div>
       </section>
 
-      {(activeModule === 'agent' || activeModule === 'technician') && <InventoryView {...serviceDesk} canManage={activeModule === 'agent'} canReset={user.profile === 'admin'} />}
+      {(activeModule === 'admin' || activeModule === 'agent' || activeModule === 'technician') && (
+        <InventoryView {...serviceDesk} canManage={activeModule === 'admin' || activeModule === 'agent'} canReset={user.profile === 'admin'} />
+      )}
     </main>
   );
 }
 
-function Feature({ title, body }: { title: string; body: string }) {
-  return <article className="feature-item"><strong>{title}</strong><span>{body}</span></article>;
+function AdminView({ state, createInvoice, updateInvoiceStatus, currentUser }: DeskActions & { currentUser: AuthUser }) {
+  const metrics = getMetrics(state);
+  const localDemoManagedUsers: ManagedUser[] = [
+    { ...currentUser, active: true, createdAt: 'Local demo' },
+    { id: 'user-agent', name: 'Agent User', email: 'agent@servicedesk.local', role: 'Agent', profile: 'agent', moduleAccess: ['agent'], active: true, createdAt: 'Local demo' },
+    { id: 'user-technician', name: 'Technician User', email: 'tech@servicedesk.local', role: 'Technician', profile: 'technician', moduleAccess: ['technician'], active: true, createdAt: 'Local demo' },
+    { id: 'user-customer', name: 'Customer User', email: 'customer@servicedesk.local', role: 'Customer', profile: 'customer', moduleAccess: ['customer'], active: true, createdAt: 'Local demo' },
+  ];
+  const [users, setUsers] = useState<ManagedUser[]>(() => (isApiPersistenceEnabled ? [] : localDemoManagedUsers));
+  const [userDraft, setUserDraft] = useState<UserDraft>(blankUser);
+  const [userError, setUserError] = useState<string | null>(null);
+  const [invoiceDraft, setInvoiceDraft] = useState<InvoiceDraft>({ workItemId: state.workItems[0]?.id ?? '', amount: state.workItems[0]?.estimatedPrice ?? 0, notes: '' });
+
+  useEffect(() => {
+    if (!isApiPersistenceEnabled) {
+      return;
+    }
+
+    void userApi.list().then((response) => setUsers(response.users)).catch((error: unknown) => setUserError(error instanceof Error ? error.message : 'Unable to load users.'));
+  }, []);
+
+  const selectedWorkItem = state.workItems.find((item) => item.id === invoiceDraft.workItemId);
+
+  const submitUser = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setUserError(null);
+    if (!isApiPersistenceEnabled) {
+      setUsers((current) => [{ id: `local-${Date.now()}`, role: profileToRole(userDraft.profile), moduleAccess: profileToModules(userDraft.profile), createdAt: 'Local demo', ...userDraft }, ...current]);
+      setUserDraft(blankUser);
+      return;
+    }
+
+    try {
+      const response = await userApi.create(userDraft);
+      setUsers(response.users);
+      setUserDraft(blankUser);
+    } catch (error) {
+      setUserError(error instanceof Error ? error.message : 'Unable to create user.');
+    }
+  };
+
+  const toggleUser = async (managedUser: ManagedUser) => {
+    if (!isApiPersistenceEnabled) {
+      setUsers((current) => current.map((item) => (item.id === managedUser.id ? { ...item, active: !item.active } : item)));
+      return;
+    }
+
+    try {
+      const response = await userApi.update(managedUser.id, { name: managedUser.name, email: managedUser.email, profile: managedUser.profile, active: !managedUser.active, password: '' });
+      setUsers(response.users);
+    } catch (error) {
+      setUserError(error instanceof Error ? error.message : 'Unable to update user.');
+    }
+  };
+
+  const submitInvoice = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    createInvoice(invoiceDraft);
+    setInvoiceDraft({ workItemId: state.workItems[0]?.id ?? '', amount: state.workItems[0]?.estimatedPrice ?? 0, notes: '' });
+  };
+
+  return (
+    <section className="admin-grid">
+      <section className="section-card">
+        <p className="eyebrow">Admin ERP dashboard</p>
+        <h2>Business control center</h2>
+        <div className="admin-metric-list">
+          <MetricCard label="Customers" value={String(state.customers.length)} helper="Customer master records" />
+          <MetricCard label="Technicians" value={String(technicians.length)} helper="Repair bench users" />
+          <MetricCard label="Invoices" value={String(state.invoices.length)} helper={`${currencyFormatter.format(metrics.invoicedRevenue)} total`} />
+          <MetricCard label="Parts" value={String(state.inventoryParts.length)} helper="Inventory SKUs" />
+        </div>
+      </section>
+
+      <section className="section-card split-section">
+        <div>
+          <p className="eyebrow">User management</p>
+          <h2>Create user</h2>
+          <form className="booking-form compact-form" onSubmit={(event) => void submitUser(event)}>
+            <label>Name<input required value={userDraft.name} onChange={(event) => setUserDraft({ ...userDraft, name: event.target.value })} placeholder="New staff or customer" /></label>
+            <label>Email<input required type="email" value={userDraft.email} onChange={(event) => setUserDraft({ ...userDraft, email: event.target.value })} placeholder="name@example.com" /></label>
+            <div className="form-row"><label>Profile<select value={userDraft.profile} onChange={(event) => setUserDraft({ ...userDraft, profile: event.target.value as AuthProfile })}>{authProfiles.map((profile) => <option key={profile} value={profile}>{profile}</option>)}</select></label><label>Password<input required value={userDraft.password} onChange={(event) => setUserDraft({ ...userDraft, password: event.target.value })} placeholder="Minimum 8 chars" /></label></div>
+            <label className="inline-check"><input type="checkbox" checked={userDraft.active} onChange={(event) => setUserDraft({ ...userDraft, active: event.target.checked })} /> Active user</label>
+            {userError && <div className="login-error">{userError}</div>}
+            <button className="primary-button" type="submit">Create user</button>
+          </form>
+        </div>
+        <div className="table-card">
+          <h3>Users</h3>
+          {users.map((managedUser) => (
+            <div className="table-row" key={managedUser.id}>
+              <div><strong>{managedUser.name}</strong><span>{managedUser.email}</span></div>
+              <span className="pill">{managedUser.profile}</span>
+              <button className={managedUser.active ? 'danger-button' : 'secondary-dark-button'} type="button" onClick={() => void toggleUser(managedUser)} disabled={managedUser.id === currentUser.id}>{managedUser.active ? 'Deactivate' : 'Activate'}</button>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="section-card split-section">
+        <div>
+          <p className="eyebrow">Invoices & payments</p>
+          <h2>Create invoice</h2>
+          <form className="booking-form compact-form" onSubmit={submitInvoice}>
+            <label>Work item<select value={invoiceDraft.workItemId} onChange={(event) => {
+              const item = state.workItems.find((workItem) => workItem.id === event.target.value);
+              setInvoiceDraft({ ...invoiceDraft, workItemId: event.target.value, amount: item?.estimatedPrice ?? invoiceDraft.amount });
+            }}>{state.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} · {item.customerName} · {item.deviceModel}</option>)}</select></label>
+            <label>Amount<input type="number" min="1" value={invoiceDraft.amount} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, amount: Number(event.target.value) })} /></label>
+            <label>Notes<textarea value={invoiceDraft.notes} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, notes: event.target.value })} placeholder={selectedWorkItem?.requiredChanges ?? 'Invoice notes'} /></label>
+            <button className="primary-button" type="submit">Issue invoice</button>
+          </form>
+        </div>
+        <InvoiceList invoices={state.invoices} updateInvoiceStatus={updateInvoiceStatus} />
+      </section>
+
+      <section className="section-card split-section">
+        <MasterList title="Customer master" items={state.customers.map((customer) => ({ id: customer.id, primary: customer.name, secondary: `${customer.phone} · ${customer.email}` }))} />
+        <MasterList title="Technician master" items={technicians.map((tech) => ({ id: tech.id, primary: tech.name, secondary: `${tech.email} · ${tech.specialties.join(', ')}` }))} />
+      </section>
+    </section>
+  );
 }
 
-type DeskActions = ReturnType<typeof useServiceDesk>;
-
-function AgentView({ state, createWorkItem, updateWorkItem, cancelWorkItem }: DeskActions & { canReset: boolean }) {
+function AgentView({ state, createWorkItem, updateWorkItem, cancelWorkItem }: DeskActions) {
   const [draft, setDraft] = useState<WorkItemDraft>(blankDraft);
   const [query, setQuery] = useState('');
 
@@ -443,6 +587,40 @@ function InventoryView({ state, adjustInventory, addInventoryPart, reset, canMan
     </section>
   );
 }
+
+function InvoiceList({ invoices, updateInvoiceStatus }: { invoices: DeskActions['state']['invoices']; updateInvoiceStatus: DeskActions['updateInvoiceStatus'] }) {
+  return (
+    <div className="table-card">
+      <h3>Invoice register</h3>
+      {invoices.map((invoice) => (
+        <div className="table-row" key={invoice.id}>
+          <div><strong>{invoice.id} · {invoice.customerName}</strong><span>{invoice.workItemId} · {currencyFormatter.format(invoice.amount)} · {invoice.issuedAt}</span></div>
+          <select value={invoice.status} onChange={(event) => updateInvoiceStatus(invoice.id, event.target.value as InvoiceStatus)}>
+            {(['Draft', 'Issued', 'Paid', 'Void'] satisfies InvoiceStatus[]).map((status) => <option key={status}>{status}</option>)}
+          </select>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MasterList({ title, items }: { title: string; items: Array<{ id: string; primary: string; secondary: string }> }) {
+  return <div className="table-card"><h3>{title}</h3>{items.map((item) => <div className="table-row" key={item.id}><div><strong>{item.primary}</strong><span>{item.id} · {item.secondary}</span></div></div>)}</div>;
+}
+
+function profileToRole(profile: AuthProfile) {
+  return profile === 'admin' ? 'Admin' : profile === 'technician' ? 'Technician' : profile === 'customer' ? 'Customer' : 'Agent';
+}
+
+function profileToModules(profile: AuthProfile): ModuleId[] {
+  return profile === 'admin' ? ['admin', 'agent', 'technician', 'customer'] : [profile];
+}
+
+function Feature({ title, body }: { title: string; body: string }) {
+  return <article className="feature-item"><strong>{title}</strong><span>{body}</span></article>;
+}
+
+type DeskActions = ReturnType<typeof useServiceDesk>;
 
 function SyncStatus({
   isApiBacked,

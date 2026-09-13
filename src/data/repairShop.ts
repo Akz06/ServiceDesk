@@ -1,4 +1,4 @@
-import type { Customer, InventoryPart, ServiceCategory, ServiceDeskState, Technician, WorkItem } from '../types';
+import type { Customer, InventoryPart, Invoice, ServiceCategory, ServiceDeskState, Technician, WorkItem } from '../types';
 
 export const serviceCategories: ServiceCategory[] = [
   {
@@ -174,8 +174,13 @@ export const inventoryParts: InventoryPart[] = [
   { sku: 'TAB-GLASS-11', name: '11-inch Tablet Glass', compatibleWith: ['Tablet'], quantity: 8, reorderLevel: 3, unitCost: 44 },
 ];
 
+export const initialInvoices: Invoice[] = [
+  { id: 'INV-5001', workItemId: 'WI-1025', customerId: 'CUST-2002', customerName: 'Chris Wong', amount: 189, status: 'Issued', issuedAt: '2026-09-12 12:45', paidAt: '', notes: 'Display replacement and speaker cleaning.' },
+];
+
 export const initialServiceDeskState: ServiceDeskState = {
   customers: initialCustomers,
   workItems: initialWorkItems,
   inventoryParts,
+  invoices: initialInvoices,
 };

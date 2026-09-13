@@ -6,20 +6,31 @@ export const priorities: Priority[] = ['Low', 'Normal', 'High', 'Urgent'];
 
 export const roles: UserRole[] = ['Admin', 'Agent', 'Technician', 'Customer'];
 
+export const authProfiles: AuthProfile[] = ['admin', 'agent', 'technician', 'customer'];
+
 export const profileModuleAccess: Record<AuthProfile, ModuleId[]> = {
-  admin: ['agent', 'technician', 'customer'],
+  admin: ['admin', 'agent', 'technician', 'customer'],
   agent: ['agent'],
   technician: ['technician'],
   customer: ['customer'],
 };
 
+export const profileRoleMap: Record<AuthProfile, UserRole> = {
+  admin: 'Admin',
+  agent: 'Agent',
+  technician: 'Technician',
+  customer: 'Customer',
+};
+
 export const moduleLabels: Record<ModuleId, string> = {
+  admin: 'Admin',
   agent: 'Agent',
   technician: 'Technician',
   customer: 'Customer',
 };
 
 export const moduleDescriptions: Record<ModuleId, string> = {
+  admin: 'Manage users, master data, invoices, revenue pipeline, inventory alerts, and ERP-style controls.',
   agent: 'Create repair work items, capture online/walk-in requests, assign technicians, and manage queue activity.',
   technician: 'Perform diagnosis, share estimates, consume spare parts, and update repair status in real time.',
   customer: 'Track repair progress, review updates, and approve estimates from a customer-friendly view.',

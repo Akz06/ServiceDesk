@@ -2,17 +2,19 @@ import cors from 'cors';
 import express from 'express';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { AuthUser, InventoryPart, ModuleId, UserRole, WorkItem, WorkItemDraft } from '../src/types';
-import { canAccessModule, getUserForToken, loginWithPassword, logoutToken, seedAuthUsersIfEmpty } from './auth';
+import type { AuthUser, InventoryPart, InvoiceDraft, InvoiceStatus, ModuleId, UserDraft, UserRole, WorkItem, WorkItemDraft } from '../src/types';
+import { canAccessModule, createUser, getUserForToken, listUsers, loginWithPassword, logoutToken, seedAuthUsersIfEmpty, updateUser } from './auth';
 import { runMigrations } from './migrate';
 import {
   adjustInventory,
   approveEstimate,
   cancelWorkItem,
+  createInvoice,
   createWorkItem,
   getServiceDeskState,
   replaceAllData,
   seedInitialDataIfEmpty,
+  updateInvoiceStatus,
   updateWorkItem,
   upsertInventoryPart,
 } from './repository';
@@ -103,6 +105,18 @@ app.post('/api/auth/logout', requireAuth, asyncHandler(async (request: Authentic
   response.json({ ok: true });
 }));
 
+app.get('/api/admin/users', requireAuth, requireAdmin, asyncHandler(async (_request, response) => {
+  response.json({ users: await listUsers() });
+}));
+
+app.post('/api/admin/users', requireAuth, requireAdmin, asyncHandler(async (request, response) => {
+  response.status(201).json({ users: await createUser(request.body as UserDraft) });
+}));
+
+app.patch('/api/admin/users/:id', requireAuth, requireAdmin, asyncHandler(async (request: AuthenticatedRequest, response) => {
+  response.json({ users: await updateUser(String(request.params.id), request.body as UserDraft, String(request.user?.id ?? '')) });
+}));
+
 app.get('/api/state', requireAuth, asyncHandler(async (_request, response) => {
   response.json(await getServiceDeskState());
 }));
@@ -129,14 +143,23 @@ app.post('/api/work-items/:id/cancel', requireAuth, requireModule('agent'), asyn
   response.json(await cancelWorkItem(String(request.params.id), body.actor));
 }));
 
-app.patch('/api/inventory/:sku/adjust', requireAuth, requireAnyModule('agent', 'technician'), asyncHandler(async (request, response) => {
+app.patch('/api/inventory/:sku/adjust', requireAuth, requireAnyModule('admin', 'agent', 'technician'), asyncHandler(async (request, response) => {
   const body = request.body as { delta: number };
-  response.json(await adjustInventory(String(request.params.sku), body.delta));
+  response.json(await adjustInventory(String(request.params.sku), Number(body.delta)));
 }));
 
-app.put('/api/inventory/:sku', requireAuth, requireModule('agent'), asyncHandler(async (request, response) => {
+app.put('/api/inventory/:sku', requireAuth, requireAnyModule('admin', 'agent'), asyncHandler(async (request, response) => {
   const part = request.body as InventoryPart;
   response.json(await upsertInventoryPart({ ...part, sku: String(request.params.sku).toUpperCase() }));
+}));
+
+app.post('/api/invoices', requireAuth, requireAnyModule('admin', 'agent'), asyncHandler(async (request, response) => {
+  response.status(201).json(await createInvoice(request.body as InvoiceDraft));
+}));
+
+app.patch('/api/invoices/:id', requireAuth, requireAnyModule('admin', 'agent'), asyncHandler(async (request, response) => {
+  const body = request.body as { status: InvoiceStatus };
+  response.json(await updateInvoiceStatus(String(request.params.id), body.status));
 }));
 
 app.post('/api/reset', requireAuth, requireAdmin, asyncHandler(async (_request, response) => {
@@ -151,8 +174,11 @@ app.get(/.*/, (_request, response) => {
 
 app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
   void _next;
-  console.error(error);
-  response.status(500).json({ error: error instanceof Error ? error.message : 'Unexpected server error' });
+  const statusCode = error instanceof Error && 'statusCode' in error && typeof error.statusCode === 'number' ? error.statusCode : 500;
+  if (statusCode >= 500) {
+    console.error(error);
+  }
+  response.status(statusCode).json({ error: error instanceof Error ? error.message : 'Unexpected server error' });
 });
 
 runMigrations()

@@ -3,7 +3,7 @@ import type { AuthUser } from '../types';
 import { authApi, clearAuthSession, getStoredAuthUser, isApiPersistenceEnabled, storeAuthSession } from '../services/apiClient';
 
 const localDemoUsers: Array<{ email: string; password: string; user: AuthUser }> = [
-  { email: 'admin@servicedesk.local', password: 'Admin@12345', user: { id: 'user-admin', name: 'Admin User', email: 'admin@servicedesk.local', role: 'Admin', profile: 'admin', moduleAccess: ['agent', 'technician', 'customer'] } },
+  { email: 'admin@servicedesk.local', password: 'Admin@12345', user: { id: 'user-admin', name: 'Admin User', email: 'admin@servicedesk.local', role: 'Admin', profile: 'admin', moduleAccess: ['admin', 'agent', 'technician', 'customer'] } },
   { email: 'agent@servicedesk.local', password: 'Agent@12345', user: { id: 'user-agent', name: 'Agent User', email: 'agent@servicedesk.local', role: 'Agent', profile: 'agent', moduleAccess: ['agent'] } },
   { email: 'tech@servicedesk.local', password: 'Tech@12345', user: { id: 'user-technician', name: 'Technician User', email: 'tech@servicedesk.local', role: 'Technician', profile: 'technician', moduleAccess: ['technician'] } },
   { email: 'customer@servicedesk.local', password: 'Customer@12345', user: { id: 'user-customer', name: 'Customer User', email: 'customer@servicedesk.local', role: 'Customer', profile: 'customer', moduleAccess: ['customer'] } },

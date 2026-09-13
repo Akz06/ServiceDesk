@@ -1,6 +1,6 @@
 import { initialServiceDeskState } from '../data/repairShop';
 import { statusFlow, terminalStatuses } from '../domain/constants';
-import type { Customer, InventoryPart, ServiceDeskState, UserRole, WorkItem, WorkItemDraft, WorkItemStatus } from '../types';
+import type { Customer, InventoryPart, InvoiceDraft, InvoiceStatus, ServiceDeskState, UserRole, WorkItem, WorkItemDraft, WorkItemStatus } from '../types';
 
 export const STORAGE_KEY = 'service-desk-state-v1';
 
@@ -10,6 +10,7 @@ const cloneState = (state: ServiceDeskState): ServiceDeskState => ({
   customers: state.customers.map((customer) => ({ ...customer })),
   workItems: state.workItems.map((item) => ({ ...item, partsRequired: [...item.partsRequired], updates: item.updates.map((update) => ({ ...update })) })),
   inventoryParts: state.inventoryParts.map((part) => ({ ...part, compatibleWith: [...part.compatibleWith] })),
+  invoices: state.invoices.map((invoice) => ({ ...invoice })),
 });
 
 const nextNumericId = (prefix: string, values: string[], fallback: number) => {
@@ -34,7 +35,8 @@ export const loadServiceDeskState = (): ServiceDeskState => {
   }
 
   try {
-    return JSON.parse(stored) as ServiceDeskState;
+    const parsed = JSON.parse(stored) as Partial<ServiceDeskState>;
+    return { ...getInitialServiceDeskState(), ...parsed, invoices: parsed.invoices ?? [] };
   } catch {
     return getInitialServiceDeskState();
   }
@@ -61,7 +63,7 @@ export const createWorkItemRecord = (state: ServiceDeskState, draft: WorkItemDra
     id: nextNumericId('CUST', state.customers.map((item) => item.id), 2000),
     name: draft.customerName.trim() || 'Walk-in Customer',
     phone: draft.customerPhone.trim() || 'Phone pending',
-    email: draft.customerEmail.trim() || 'email-pending@example.com',
+    email: draft.customerEmail.trim().toLowerCase() || 'email-pending@example.com',
   };
   const workItemId = nextNumericId('WI', state.workItems.map((item) => item.id), 1023);
   const workItem: WorkItem = {
@@ -152,6 +154,36 @@ export const addInventoryPartRecord = (state: ServiceDeskState, part: InventoryP
   inventoryParts: [part, ...state.inventoryParts.filter((item) => item.sku !== part.sku)],
 });
 
+export const createInvoiceRecord = (state: ServiceDeskState, draft: InvoiceDraft): ServiceDeskState => {
+  const item = state.workItems.find((workItem) => workItem.id === draft.workItemId);
+  if (!item) {
+    return state;
+  }
+
+  return {
+    ...state,
+    invoices: [
+      {
+        id: nextNumericId('INV', state.invoices.map((invoice) => invoice.id), 5000),
+        workItemId: item.id,
+        customerId: item.customerId,
+        customerName: item.customerName,
+        amount: Number(draft.amount) || item.estimatedPrice,
+        status: 'Issued',
+        issuedAt: nowStamp(),
+        paidAt: '',
+        notes: draft.notes,
+      },
+      ...state.invoices,
+    ],
+  };
+};
+
+export const updateInvoiceStatusRecord = (state: ServiceDeskState, id: string, status: InvoiceStatus): ServiceDeskState => ({
+  ...state,
+  invoices: state.invoices.map((invoice) => (invoice.id === id ? { ...invoice, status, paidAt: status === 'Paid' ? nowStamp() : '' } : invoice)),
+});
+
 export const getNextStatuses = (status: WorkItemStatus): WorkItemStatus[] => {
   if (terminalStatuses.includes(status)) {
     return [];
@@ -169,12 +201,16 @@ export const getMetrics = (state: ServiceDeskState) => {
   const activeWorkItems = state.workItems.filter((item) => !terminalStatuses.includes(item.status));
   const lowStockParts = state.inventoryParts.filter((part) => part.quantity <= part.reorderLevel);
   const estimatedRevenue = state.workItems.reduce((sum, item) => sum + item.estimatedPrice, 0);
+  const invoicedRevenue = state.invoices.filter((invoice) => invoice.status !== 'Void').reduce((sum, invoice) => sum + invoice.amount, 0);
+  const paidRevenue = state.invoices.filter((invoice) => invoice.status === 'Paid').reduce((sum, invoice) => sum + invoice.amount, 0);
   const awaitingApproval = state.workItems.filter((item) => item.status === 'Estimate Shared' && !item.approvedByCustomer).length;
 
   return {
     activeWorkItems: activeWorkItems.length,
     lowStockParts: lowStockParts.length,
     estimatedRevenue,
+    invoicedRevenue,
+    paidRevenue,
     awaitingApproval,
   };
 };

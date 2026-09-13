@@ -1,6 +1,7 @@
 import type { ModuleId } from '../types';
 
 const moduleMap: Record<string, ModuleId> = {
+  admin: 'admin',
   agent: 'agent',
   technician: 'technician',
   customer: 'customer',

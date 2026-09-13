@@ -1,4 +1,4 @@
-import type { AuthResponse, AuthUser, InventoryPart, ServiceDeskState, UserRole, WorkItem, WorkItemDraft } from '../types';
+import type { AuthResponse, AuthUser, InventoryPart, InvoiceDraft, InvoiceStatus, ManagedUser, ServiceDeskState, UserDraft, UserRole, WorkItem, WorkItemDraft } from '../types';
 
 const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
 const shouldUseApi = configuredBaseUrl !== undefined && configuredBaseUrl !== '' ? true : import.meta.env.PROD;
@@ -54,6 +54,12 @@ export const authApi = {
   logout: () => requestJson<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
 };
 
+export const userApi = {
+  list: () => requestJson<{ users: ManagedUser[] }>('/api/admin/users'),
+  create: (draft: UserDraft) => requestJson<{ users: ManagedUser[] }>('/api/admin/users', { method: 'POST', body: JSON.stringify(draft) }),
+  update: (id: string, draft: UserDraft) => requestJson<{ users: ManagedUser[] }>(`/api/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify(draft) }),
+};
+
 export const serviceDeskApi = {
   getState: () => requestState('/api/state'),
   createWorkItem: (draft: WorkItemDraft) => requestState('/api/work-items', { method: 'POST', body: JSON.stringify(draft) }),
@@ -67,5 +73,7 @@ export const serviceDeskApi = {
   cancelWorkItem: (id: string, actor: UserRole) => requestState(`/api/work-items/${id}/cancel`, { method: 'POST', body: JSON.stringify({ actor }) }),
   adjustInventory: (sku: string, delta: number) => requestState(`/api/inventory/${sku}/adjust`, { method: 'PATCH', body: JSON.stringify({ delta }) }),
   addInventoryPart: (part: InventoryPart) => requestState(`/api/inventory/${part.sku}`, { method: 'PUT', body: JSON.stringify(part) }),
+  createInvoice: (draft: InvoiceDraft) => requestState('/api/invoices', { method: 'POST', body: JSON.stringify(draft) }),
+  updateInvoiceStatus: (id: string, status: InvoiceStatus) => requestState(`/api/invoices/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   reset: () => requestState('/api/reset', { method: 'POST' }),
 };

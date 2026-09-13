@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { InventoryPart, ServiceDeskState, UserRole, WorkItem, WorkItemDraft } from '../types';
+import type { InventoryPart, InvoiceDraft, InvoiceStatus, ServiceDeskState, UserRole, WorkItem, WorkItemDraft } from '../types';
 import { isApiPersistenceEnabled, serviceDeskApi } from '../services/apiClient';
 import {
   addInventoryPartRecord,
   adjustInventoryRecord,
   approveEstimateRecord,
   cancelWorkItemRecord,
+  createInvoiceRecord,
   createWorkItemRecord,
   loadServiceDeskState,
   resetServiceDeskState,
   saveServiceDeskState,
   STORAGE_KEY,
+  updateInvoiceStatusRecord,
   updateWorkItemRecord,
 } from '../services/serviceDeskStore';
 
@@ -141,6 +143,20 @@ export function useServiceDesk() {
         return;
       }
       setState((current) => addInventoryPartRecord(current, part));
+    },
+    createInvoice: (draft: InvoiceDraft) => {
+      if (isApiPersistenceEnabled) {
+        void runApiMutation(() => serviceDeskApi.createInvoice(draft));
+        return;
+      }
+      setState((current) => createInvoiceRecord(current, draft));
+    },
+    updateInvoiceStatus: (id: string, status: InvoiceStatus) => {
+      if (isApiPersistenceEnabled) {
+        void runApiMutation(() => serviceDeskApi.updateInvoiceStatus(id, status));
+        return;
+      }
+      setState((current) => updateInvoiceStatusRecord(current, id, status));
     },
     reset: () => {
       if (isApiPersistenceEnabled) {

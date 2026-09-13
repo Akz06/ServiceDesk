@@ -1,5 +1,16 @@
 import { initialServiceDeskState } from '../src/data/repairShop';
-import type { Customer, InventoryPart, ServiceDeskState, UserRole, WorkItem, WorkItemDraft, WorkItemUpdate } from '../src/types';
+import type {
+  Customer,
+  InventoryPart,
+  Invoice,
+  InvoiceDraft,
+  InvoiceStatus,
+  ServiceDeskState,
+  UserRole,
+  WorkItem,
+  WorkItemDraft,
+  WorkItemUpdate,
+} from '../src/types';
 import { query, withTransaction } from './db';
 
 interface CustomerRow {
@@ -50,6 +61,27 @@ interface InventoryPartRow {
   unit_cost: string;
 }
 
+interface InvoiceRow {
+  id: string;
+  work_item_id: string;
+  customer_id: string;
+  customer_name: string;
+  amount: string;
+  status: InvoiceStatus;
+  issued_at: string;
+  paid_at: string;
+  notes: string;
+}
+
+class RepositoryError extends Error {
+  statusCode: number;
+
+  constructor(message: string, statusCode = 400) {
+    super(message);
+    this.statusCode = statusCode;
+  }
+}
+
 const nowStamp = () => new Date().toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
 const nextNumericId = (prefix: string, values: string[], fallback: number) => {
@@ -88,12 +120,41 @@ function mapWorkItem(row: WorkItemRow, updates: WorkItemUpdate[]): WorkItem {
   };
 }
 
+function mapInvoice(row: InvoiceRow): Invoice {
+  return {
+    id: row.id,
+    workItemId: row.work_item_id,
+    customerId: row.customer_id,
+    customerName: row.customer_name,
+    amount: Number(row.amount),
+    status: row.status,
+    issuedAt: row.issued_at,
+    paidAt: row.paid_at,
+    notes: row.notes,
+  };
+}
+
+function validateWorkItemDraft(draft: WorkItemDraft) {
+  if (!draft.customerName?.trim() || !draft.customerPhone?.trim() || !draft.customerEmail?.trim()) {
+    throw new RepositoryError('Customer name, phone, and email are required.');
+  }
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(draft.customerEmail.trim())) {
+    throw new RepositoryError('A valid customer email is required.');
+  }
+
+  if (!draft.deviceModel?.trim() || !draft.issueSummary?.trim()) {
+    throw new RepositoryError('Device model and issue summary are required.');
+  }
+}
+
 export async function getServiceDeskState(): Promise<ServiceDeskState> {
-  const [customersResult, workItemsResult, updatesResult, inventoryResult] = await Promise.all([
+  const [customersResult, workItemsResult, updatesResult, inventoryResult, invoicesResult] = await Promise.all([
     query<CustomerRow>('SELECT id, name, phone, email FROM customers ORDER BY created_at DESC, id DESC'),
     query<WorkItemRow>('SELECT * FROM work_items ORDER BY id DESC'),
     query<UpdateRow>('SELECT id, work_item_id, actor, message, at FROM work_item_updates ORDER BY id ASC'),
     query<InventoryPartRow>('SELECT * FROM inventory_parts ORDER BY sku ASC'),
+    query<InvoiceRow>('SELECT * FROM invoices ORDER BY id DESC'),
   ]);
 
   const updatesByWorkItem = updatesResult.rows.reduce<Record<string, WorkItemUpdate[]>>((grouped, update) => {
@@ -113,12 +174,13 @@ export async function getServiceDeskState(): Promise<ServiceDeskState> {
       reorderLevel: row.reorder_level,
       unitCost: Number(row.unit_cost),
     })),
+    invoices: invoicesResult.rows.map(mapInvoice),
   };
 }
 
 export async function replaceAllData(state: ServiceDeskState) {
   await withTransaction(async (client) => {
-    await client.query('TRUNCATE work_item_updates, work_items, customers, inventory_parts RESTART IDENTITY CASCADE');
+    await client.query('TRUNCATE invoices, work_item_updates, work_items, customers, inventory_parts RESTART IDENTITY CASCADE');
 
     for (const customer of state.customers) {
       await client.query('INSERT INTO customers (id, name, phone, email) VALUES ($1, $2, $3, $4)', [
@@ -179,6 +241,14 @@ export async function replaceAllData(state: ServiceDeskState) {
         [part.sku, part.name, part.compatibleWith, part.quantity, part.reorderLevel, part.unitCost],
       );
     }
+
+    for (const invoice of state.invoices) {
+      await client.query(
+        `INSERT INTO invoices (id, work_item_id, customer_id, customer_name, amount, status, issued_at, paid_at, notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [invoice.id, invoice.workItemId, invoice.customerId, invoice.customerName, invoice.amount, invoice.status, invoice.issuedAt, invoice.paidAt, invoice.notes],
+      );
+    }
   });
 
   return getServiceDeskState();
@@ -192,16 +262,18 @@ export async function seedInitialDataIfEmpty() {
 }
 
 export async function createWorkItem(draft: WorkItemDraft): Promise<ServiceDeskState> {
+  validateWorkItemDraft(draft);
   const state = await getServiceDeskState();
   const stamp = nowStamp();
+  const customerEmail = draft.customerEmail.trim().toLowerCase();
   const existingCustomer = state.customers.find(
-    (customer) => customer.phone === draft.customerPhone || customer.email.toLowerCase() === draft.customerEmail.toLowerCase(),
+    (customer) => customer.phone === draft.customerPhone.trim() || customer.email.toLowerCase() === customerEmail,
   );
   const customer: Customer = existingCustomer ?? {
     id: nextNumericId('CUST', state.customers.map((item) => item.id), 2000),
-    name: draft.customerName.trim() || 'Walk-in Customer',
-    phone: draft.customerPhone.trim() || 'Phone pending',
-    email: draft.customerEmail.trim() || 'email-pending@example.com',
+    name: draft.customerName.trim(),
+    phone: draft.customerPhone.trim(),
+    email: customerEmail,
   };
   const workItemId = nextNumericId('WI', state.workItems.map((item) => item.id), 1023);
   const item: WorkItem = {
@@ -212,9 +284,9 @@ export async function createWorkItem(draft: WorkItemDraft): Promise<ServiceDeskS
     customerEmail: customer.email,
     source: draft.source,
     deviceType: draft.deviceType,
-    deviceModel: draft.deviceModel.trim() || `${draft.deviceType} device`,
+    deviceModel: draft.deviceModel.trim(),
     serialNumber: draft.serialNumber.trim() || 'Not provided',
-    issueSummary: draft.issueSummary.trim() || 'Issue details pending.',
+    issueSummary: draft.issueSummary.trim(),
     priority: draft.priority,
     status: 'Assigned',
     assignedTechnicianId: draft.assignedTechnicianId,
@@ -296,7 +368,7 @@ export async function updateWorkItem(
   const state = await getServiceDeskState();
   const item = state.workItems.find((workItem) => workItem.id === id);
   if (!item) {
-    throw new Error(`Work item ${id} not found`);
+    throw new RepositoryError(`Work item ${id} not found`, 404);
   }
 
   const next = { ...item, ...patch, updatedAt: nowStamp() };
@@ -336,7 +408,7 @@ export async function updateWorkItem(
       updateId,
       id,
       actor,
-      message,
+      message.trim() || `Work item updated by ${actor}.`,
       next.updatedAt,
     ]);
   });
@@ -353,11 +425,23 @@ export async function cancelWorkItem(id: string, actor: UserRole): Promise<Servi
 }
 
 export async function adjustInventory(sku: string, delta: number): Promise<ServiceDeskState> {
-  await query('UPDATE inventory_parts SET quantity = GREATEST(0, quantity + $2) WHERE sku = $1', [sku, delta]);
+  if (!Number.isFinite(delta)) {
+    throw new RepositoryError('Inventory adjustment must be a valid number.');
+  }
+
+  const result = await query('UPDATE inventory_parts SET quantity = GREATEST(0, quantity + $2) WHERE sku = $1', [sku.toUpperCase(), delta]);
+  if (result.rowCount === 0) {
+    throw new RepositoryError(`Inventory part ${sku} not found`, 404);
+  }
+
   return getServiceDeskState();
 }
 
 export async function upsertInventoryPart(part: InventoryPart): Promise<ServiceDeskState> {
+  if (!part.sku.trim() || !part.name.trim()) {
+    throw new RepositoryError('Part SKU and name are required.');
+  }
+
   await query(
     `INSERT INTO inventory_parts (sku, name, compatible_with, quantity, reorder_level, unit_cost)
      VALUES ($1, $2, $3, $4, $5, $6)
@@ -367,8 +451,40 @@ export async function upsertInventoryPart(part: InventoryPart): Promise<ServiceD
       quantity = EXCLUDED.quantity,
       reorder_level = EXCLUDED.reorder_level,
       unit_cost = EXCLUDED.unit_cost`,
-    [part.sku, part.name, part.compatibleWith, part.quantity, part.reorderLevel, part.unitCost],
+    [part.sku.toUpperCase(), part.name.trim(), part.compatibleWith, Math.max(0, part.quantity), Math.max(0, part.reorderLevel), Math.max(0, part.unitCost)],
   );
+
+  return getServiceDeskState();
+}
+
+export async function createInvoice(draft: InvoiceDraft): Promise<ServiceDeskState> {
+  const state = await getServiceDeskState();
+  const item = state.workItems.find((workItem) => workItem.id === draft.workItemId);
+  if (!item) {
+    throw new RepositoryError('Work item is required to create an invoice.', 404);
+  }
+
+  const amount = Number(draft.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new RepositoryError('Invoice amount must be greater than zero.');
+  }
+
+  const invoiceId = nextNumericId('INV', state.invoices.map((invoice) => invoice.id), 5000);
+  await query(
+    `INSERT INTO invoices (id, work_item_id, customer_id, customer_name, amount, status, issued_at, notes)
+     VALUES ($1, $2, $3, $4, $5, 'Issued', $6, $7)`,
+    [invoiceId, item.id, item.customerId, item.customerName, amount, nowStamp(), draft.notes.trim()],
+  );
+
+  return getServiceDeskState();
+}
+
+export async function updateInvoiceStatus(id: string, status: InvoiceStatus): Promise<ServiceDeskState> {
+  const paidAt = status === 'Paid' ? nowStamp() : '';
+  const result = await query('UPDATE invoices SET status = $2, paid_at = $3 WHERE id = $1', [id, status, paidAt]);
+  if (result.rowCount === 0) {
+    throw new RepositoryError(`Invoice ${id} not found`, 404);
+  }
 
   return getServiceDeskState();
 }

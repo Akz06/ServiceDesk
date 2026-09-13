@@ -1,19 +1,72 @@
-# ServiceDesk Repair Shop
+# ServiceDesk Repair ERP
 
-A full-stack laptop, desktop, mobile, and electronics repair service desk. It includes a public homepage, PostgreSQL-backed login, role/profile-based modules, work-item lifecycle management, technician estimates, customer progress tracking, and inventory.
+A full-stack electronics repair ERP for laptop, desktop, mobile, tablet, console, accessory, and other electronics repair shops.
+
+It includes a public homepage, PostgreSQL-backed login, profile-based modules, work-item lifecycle management, technician estimates, customer progress tracking, spare-parts inventory, admin user management, master data, invoices, and operational reporting.
+
+## Stack
+
+- Frontend: React, TypeScript, Vite
+- Backend: Node.js, Express, TypeScript
+- Database: PostgreSQL
+- Auth: PostgreSQL users and sessions, `scrypt` password hashing, bearer session tokens
+- Deployment: Railway single web service serving API and built frontend
+
+## Modules
+
+| Profile | Modules |
+| --- | --- |
+| Admin | Admin, Agent, Technician, Customer |
+| Agent | Agent |
+| Technician | Technician |
+| Customer | Customer |
+
+### Admin module
+
+- User management
+- Create users with profile assignment
+- Activate/deactivate users
+- Business dashboard
+- Customer master list
+- Technician master list
+- Invoice creation
+- Invoice status updates: Draft, Issued, Paid, Void
+- Inventory management and demo data reset
+
+### Agent module
+
+- Create online or walk-in repair work items
+- Capture customer/device details
+- Assign/reassign technicians
+- Search and cancel work items
+- Manage spare-parts inventory
+
+### Technician module
+
+- View assigned repair jobs
+- Add diagnosis and required changes
+- Share estimate price
+- Update promised time and repair status
+- Consume spare parts from inventory
+
+### Customer module
+
+- View repair progress
+- See update timeline
+- Approve shared estimates
 
 ## Demo Login Users
 
-These users are seeded automatically into PostgreSQL on first deploy/start:
+These users are seeded automatically into PostgreSQL on startup:
 
-| Profile | Email | Password | Modules |
-| --- | --- | --- | --- |
-| Admin | `admin@servicedesk.local` | `Admin@12345` | Agent, Technician, Customer |
-| Agent | `agent@servicedesk.local` | `Agent@12345` | Agent |
-| Technician | `tech@servicedesk.local` | `Tech@12345` | Technician |
-| Customer | `customer@servicedesk.local` | `Customer@12345` | Customer |
+| Profile | Email | Password |
+| --- | --- | --- |
+| Admin | `admin@servicedesk.local` | `Admin@12345` |
+| Agent | `agent@servicedesk.local` | `Agent@12345` |
+| Technician | `tech@servicedesk.local` | `Tech@12345` |
+| Customer | `customer@servicedesk.local` | `Customer@12345` |
 
-Change these credentials before production use.
+Change or deactivate demo users before real production use.
 
 ## Railway Setup
 
@@ -91,37 +144,7 @@ http://localhost:3000
 npm run dev
 ```
 
-This mode uses local demo auth and `localStorage` for repair data. Railway/production uses PostgreSQL.
-
-## Features
-
-- Public marketing homepage explaining the application.
-- PostgreSQL users and sessions.
-- Password hashing with Node `scrypt` and random salts.
-- Bearer-token auth backed by PostgreSQL sessions.
-- Profile/module authorization:
-  - Admin: all modules.
-  - Agent: Agent module only.
-  - Technician: Technician module only.
-  - Customer: Customer module only.
-- Agent module:
-  - Create online/walk-in work items.
-  - Assign/reassign technicians.
-  - Search and cancel work items.
-- Technician module:
-  - Add analysis.
-  - Add required changes.
-  - Share estimates.
-  - Update status.
-  - Consume inventory parts.
-- Customer module:
-  - See realtime-style progress.
-  - Review timeline updates.
-  - Approve estimates.
-- Inventory:
-  - Add/update spare parts.
-  - Adjust stock.
-  - Low-stock alerts.
+This mode uses local demo auth and `localStorage`. Railway/production uses PostgreSQL.
 
 ## API Summary
 
@@ -133,7 +156,15 @@ GET /api/auth/me
 POST /api/auth/logout
 ```
 
-Authenticated service desk APIs:
+Admin:
+
+```http
+GET /api/admin/users
+POST /api/admin/users
+PATCH /api/admin/users/:id
+```
+
+Service desk:
 
 ```http
 GET /api/state
@@ -143,14 +174,30 @@ POST /api/work-items/:id/approval
 POST /api/work-items/:id/cancel
 PATCH /api/inventory/:sku/adjust
 PUT /api/inventory/:sku
+POST /api/invoices
+PATCH /api/invoices/:id
 POST /api/reset
 ```
 
-All service desk APIs require:
+All protected APIs require:
 
 ```http
 Authorization: Bearer <session-token>
 ```
+
+## Database Migrations
+
+Migrations run automatically on startup and can also be run manually:
+
+```bash
+npm run migrate
+```
+
+Current migrations:
+
+- `001_init.sql`: customers, work items, updates, inventory
+- `002_auth.sql`: users and user sessions
+- `003_erp_modules.sql`: invoices
 
 ## Validation
 
@@ -162,13 +209,13 @@ npm run typecheck && npm run lint && npm run test && npm run build
 
 ## Security Notes
 
-This is now a full-stack POC with real PostgreSQL-backed authentication. Before using for real customers:
+This is a full-stack ERP-style app. Before using for real customers:
 
-- Replace demo users/passwords.
-- Add user-management screens.
-- Add email verification or password reset.
-- Add rate limiting for `/api/auth/login`.
+- Replace or deactivate demo users.
 - Use a strong Railway `AUTH_SECRET`.
-- Restrict CORS to known domains if you separate frontend/backend.
-- Add audit logs for sensitive actions.
-- Add stricter request validation with a schema library such as Zod.
+- Add login rate limiting.
+- Add password reset and email verification.
+- Restrict CORS if frontend/backend are split.
+- Add audit logs for user, invoice, and repair status changes.
+- Add stronger request validation with a schema library such as Zod.
+- Add database backups and monitoring.

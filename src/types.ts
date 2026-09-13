@@ -6,7 +6,7 @@ export type UserRole = 'Admin' | 'Agent' | 'Technician' | 'Customer';
 
 export type AuthProfile = 'admin' | 'agent' | 'technician' | 'customer';
 
-export type ModuleId = 'agent' | 'technician' | 'customer';
+export type ModuleId = 'admin' | 'agent' | 'technician' | 'customer';
 
 export type RequestSource = 'Online' | 'Walk-in';
 
@@ -22,6 +22,8 @@ export type WorkItemStatus =
   | 'Ready for Pickup'
   | 'Delivered'
   | 'Cancelled';
+
+export type InvoiceStatus = 'Draft' | 'Issued' | 'Paid' | 'Void';
 
 export interface ServiceCategory {
   id: string;
@@ -102,10 +104,29 @@ export interface WorkItemDraft {
   assignedTechnicianId: string;
 }
 
+export interface Invoice {
+  id: string;
+  workItemId: string;
+  customerId: string;
+  customerName: string;
+  amount: number;
+  status: InvoiceStatus;
+  issuedAt: string;
+  paidAt: string;
+  notes: string;
+}
+
+export interface InvoiceDraft {
+  workItemId: string;
+  amount: number;
+  notes: string;
+}
+
 export interface ServiceDeskState {
   customers: Customer[];
   workItems: WorkItem[];
   inventoryParts: InventoryPart[];
+  invoices: Invoice[];
 }
 
 export interface AuthUser {
@@ -115,6 +136,19 @@ export interface AuthUser {
   role: UserRole;
   profile: AuthProfile;
   moduleAccess: ModuleId[];
+}
+
+export interface ManagedUser extends AuthUser {
+  active: boolean;
+  createdAt: string;
+}
+
+export interface UserDraft {
+  name: string;
+  email: string;
+  profile: AuthProfile;
+  password: string;
+  active: boolean;
 }
 
 export interface AuthResponse {
