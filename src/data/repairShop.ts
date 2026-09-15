@@ -96,6 +96,9 @@ export const initialWorkItems: WorkItem[] = [
     analysis: 'Battery cycle count is high and health is below service threshold.',
     requiredChanges: 'Replace battery, clean thermal vents, and run charging calibration.',
     estimatedPrice: 129,
+    laborEstimate: 50,
+    partsEstimate: 64,
+    diagnosticFee: 15,
     approvedByCustomer: false,
     partsRequired: ['BAT-USB-C-65W'],
     createdAt: '2026-09-12 09:10',
@@ -124,6 +127,9 @@ export const initialWorkItems: WorkItem[] = [
     analysis: 'Display assembly is damaged. Speaker mesh is blocked with dust.',
     requiredChanges: 'Replace display assembly and clean speaker mesh.',
     estimatedPrice: 189,
+    laborEstimate: 70,
+    partsEstimate: 104,
+    diagnosticFee: 15,
     approvedByCustomer: true,
     partsRequired: ['LCD-IPH-14-BLK'],
     createdAt: '2026-09-12 10:20',
@@ -152,6 +158,9 @@ export const initialWorkItems: WorkItem[] = [
     analysis: 'Power supply fails stress test. GPU temperature is also high.',
     requiredChanges: 'Replace PSU, clean cabinet, and reapply thermal compound.',
     estimatedPrice: 240,
+    laborEstimate: 80,
+    partsEstimate: 140,
+    diagnosticFee: 20,
     approvedByCustomer: false,
     partsRequired: ['PSU-750W-GOLD'],
     createdAt: '2026-09-11 15:40',
@@ -175,7 +184,22 @@ export const inventoryParts: InventoryPart[] = [
 ];
 
 export const initialInvoices: Invoice[] = [
-  { id: 'INV-5001', workItemId: 'WI-1025', customerId: 'CUST-2002', customerName: 'Chris Wong', amount: 189, status: 'Issued', issuedAt: '2026-09-12 12:45', paidAt: '', notes: 'Display replacement and speaker cleaning.' },
+  {
+    id: 'INV-5001',
+    workItemId: 'WI-1025',
+    customerId: 'CUST-2002',
+    customerName: 'Chris Wong',
+    amount: 189,
+    laborAmount: 70,
+    partsAmount: 104,
+    diagnosticFee: 15,
+    status: 'Issued',
+    issuedAt: '2026-09-12 12:45',
+    paidAt: '',
+    paymentMethod: '',
+    paymentReference: '',
+    notes: 'Display replacement and speaker cleaning.',
+  },
 ];
 
 export const initialServiceDeskState: ServiceDeskState = {
@@ -183,4 +207,6 @@ export const initialServiceDeskState: ServiceDeskState = {
   workItems: initialWorkItems,
   inventoryParts,
   invoices: initialInvoices,
+  notifications: [],
+  savedReports: [],
 };

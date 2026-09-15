@@ -25,6 +25,12 @@ export type WorkItemStatus =
 
 export type InvoiceStatus = 'Draft' | 'Issued' | 'Paid' | 'Void';
 
+export type PaymentMethod = 'Cash' | 'Card (Test Mode)' | 'Bank Transfer' | 'UPI (Test Mode)';
+
+export type NotificationChannel = 'sms' | 'whatsapp' | 'email';
+
+export type ReportEntity = 'workItems' | 'invoices' | 'customers' | 'inventory';
+
 export interface ServiceCategory {
   id: string;
   deviceType: DeviceType;
@@ -83,6 +89,9 @@ export interface WorkItem {
   analysis: string;
   requiredChanges: string;
   estimatedPrice: number;
+  laborEstimate: number;
+  partsEstimate: number;
+  diagnosticFee: number;
   approvedByCustomer: boolean;
   partsRequired: string[];
   createdAt: string;
@@ -110,16 +119,60 @@ export interface Invoice {
   customerId: string;
   customerName: string;
   amount: number;
+  laborAmount: number;
+  partsAmount: number;
+  diagnosticFee: number;
   status: InvoiceStatus;
   issuedAt: string;
   paidAt: string;
+  paymentMethod: string;
+  paymentReference: string;
   notes: string;
 }
 
 export interface InvoiceDraft {
   workItemId: string;
   amount: number;
+  laborAmount: number;
+  partsAmount: number;
+  diagnosticFee: number;
   notes: string;
+}
+
+export interface InvoicePaymentDraft {
+  method: PaymentMethod;
+  reference: string;
+}
+
+export interface Notification {
+  id: string;
+  workItemId: string | null;
+  customerId: string;
+  channel: NotificationChannel;
+  recipient: string;
+  message: string;
+  status: 'sent' | 'failed';
+  provider: string;
+  createdAt: string;
+}
+
+export interface SavedReport {
+  id: string;
+  createdBy: string;
+  name: string;
+  entity: ReportEntity;
+  columns: string[];
+  filterField: string;
+  filterValue: string;
+  createdAt: string;
+}
+
+export interface SavedReportDraft {
+  name: string;
+  entity: ReportEntity;
+  columns: string[];
+  filterField: string;
+  filterValue: string;
 }
 
 export interface ServiceDeskState {
@@ -127,6 +180,8 @@ export interface ServiceDeskState {
   workItems: WorkItem[];
   inventoryParts: InventoryPart[];
   invoices: Invoice[];
+  notifications: Notification[];
+  savedReports: SavedReport[];
 }
 
 export interface AuthUser {

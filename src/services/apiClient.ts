@@ -1,4 +1,18 @@
-import type { AuthResponse, AuthUser, InventoryPart, InvoiceDraft, InvoiceStatus, ManagedUser, ServiceDeskState, UserDraft, UserRole, WorkItem, WorkItemDraft } from '../types';
+import type {
+  AuthResponse,
+  AuthUser,
+  InventoryPart,
+  InvoiceDraft,
+  InvoicePaymentDraft,
+  InvoiceStatus,
+  ManagedUser,
+  SavedReportDraft,
+  ServiceDeskState,
+  UserDraft,
+  UserRole,
+  WorkItem,
+  WorkItemDraft,
+} from '../types';
 
 const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
 const shouldUseApi = configuredBaseUrl !== undefined && configuredBaseUrl !== '' ? true : import.meta.env.PROD;
@@ -75,5 +89,33 @@ export const serviceDeskApi = {
   addInventoryPart: (part: InventoryPart) => requestState(`/api/inventory/${part.sku}`, { method: 'PUT', body: JSON.stringify(part) }),
   createInvoice: (draft: InvoiceDraft) => requestState('/api/invoices', { method: 'POST', body: JSON.stringify(draft) }),
   updateInvoiceStatus: (id: string, status: InvoiceStatus) => requestState(`/api/invoices/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+  recordInvoicePayment: (id: string, payment: InvoicePaymentDraft) => requestState(`/api/invoices/${id}/payment`, { method: 'POST', body: JSON.stringify(payment) }),
+  notifyCustomerNow: (workItemId: string) => requestState(`/api/work-items/${workItemId}/notify`, { method: 'POST' }),
+  createSavedReport: (draft: SavedReportDraft) => requestState('/api/reports', { method: 'POST', body: JSON.stringify(draft) }),
+  deleteSavedReport: (id: string) => requestState(`/api/reports/${id}`, { method: 'DELETE' }),
   reset: () => requestState('/api/reset', { method: 'POST' }),
+};
+
+async function downloadFile(path: string, filename: string) {
+  const token = getStoredAuthToken();
+  const response = await fetch(`${apiBaseUrl}${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+
+  if (!response.ok) {
+    throw new Error(`Export failed (${response.status}): ${await response.text()}`);
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+export const exportApi = {
+  invoicesCsv: () => downloadFile('/api/export/invoices.csv', 'invoices.csv'),
+  customersCsv: () => downloadFile('/api/export/customers.csv', 'customers.csv'),
 };

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { InventoryPart, InvoiceDraft, InvoiceStatus, ServiceDeskState, UserRole, WorkItem, WorkItemDraft } from '../types';
+import type { InventoryPart, InvoiceDraft, InvoicePaymentDraft, InvoiceStatus, SavedReportDraft, ServiceDeskState, UserRole, WorkItem, WorkItemDraft } from '../types';
 import { isApiPersistenceEnabled, serviceDeskApi } from '../services/apiClient';
 import {
   addInventoryPartRecord,
@@ -7,8 +7,12 @@ import {
   approveEstimateRecord,
   cancelWorkItemRecord,
   createInvoiceRecord,
+  createSavedReportRecord,
   createWorkItemRecord,
+  deleteSavedReportRecord,
   loadServiceDeskState,
+  notifyCustomerNowRecord,
+  recordInvoicePaymentRecord,
   resetServiceDeskState,
   saveServiceDeskState,
   STORAGE_KEY,
@@ -157,6 +161,34 @@ export function useServiceDesk() {
         return;
       }
       setState((current) => updateInvoiceStatusRecord(current, id, status));
+    },
+    recordInvoicePayment: (id: string, payment: InvoicePaymentDraft) => {
+      if (isApiPersistenceEnabled) {
+        void runApiMutation(() => serviceDeskApi.recordInvoicePayment(id, payment));
+        return;
+      }
+      setState((current) => recordInvoicePaymentRecord(current, id, payment));
+    },
+    notifyCustomerNow: (workItemId: string) => {
+      if (isApiPersistenceEnabled) {
+        void runApiMutation(() => serviceDeskApi.notifyCustomerNow(workItemId));
+        return;
+      }
+      setState((current) => notifyCustomerNowRecord(current, workItemId));
+    },
+    createSavedReport: (draft: SavedReportDraft, createdBy: string) => {
+      if (isApiPersistenceEnabled) {
+        void runApiMutation(() => serviceDeskApi.createSavedReport(draft));
+        return;
+      }
+      setState((current) => createSavedReportRecord(current, draft, createdBy));
+    },
+    deleteSavedReport: (id: string) => {
+      if (isApiPersistenceEnabled) {
+        void runApiMutation(() => serviceDeskApi.deleteSavedReport(id));
+        return;
+      }
+      setState((current) => deleteSavedReportRecord(current, id));
     },
     reset: () => {
       if (isApiPersistenceEnabled) {

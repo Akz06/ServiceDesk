@@ -11,6 +11,7 @@ import {
   moduleDescriptions,
   moduleLabels,
   priorities,
+  statusFlow,
   terminalStatuses,
 } from './domain/constants';
 import { useAuth } from './hooks/useAuth';
@@ -19,22 +20,44 @@ import { useToast } from './hooks/useToast';
 import type { ToastTone } from './hooks/useToast';
 import { getInitialModuleFromUrl, getOrCreateSessionId, updateUrlForModule } from './services/routing';
 import { getMetrics, getNextStatuses } from './services/serviceDeskStore';
-import { isApiPersistenceEnabled, userApi } from './services/apiClient';
+import { exportApi, isApiPersistenceEnabled, userApi } from './services/apiClient';
 import type {
   AuthProfile,
   AuthUser,
   DeviceType,
+  Invoice,
   InventoryPart,
   InvoiceDraft,
+  InvoicePaymentDraft,
   InvoiceStatus,
   ManagedUser,
   ModuleId,
+  PaymentMethod,
+  ReportEntity,
+  SavedReport,
+  SavedReportDraft,
   UserDraft,
   UserRole,
   WorkItem,
   WorkItemDraft,
   WorkItemStatus,
 } from './types';
+
+const paymentMethods: PaymentMethod[] = ['Cash', 'Card (Test Mode)', 'Bank Transfer', 'UPI (Test Mode)'];
+
+const reportEntityLabels: Record<ReportEntity, string> = {
+  workItems: 'Work items',
+  invoices: 'Invoices',
+  customers: 'Customers',
+  inventory: 'Inventory',
+};
+
+const reportColumnOptions: Record<ReportEntity, string[]> = {
+  workItems: ['id', 'customerName', 'deviceModel', 'status', 'priority', 'assignedTechnicianId', 'estimatedPrice', 'promisedBy'],
+  invoices: ['id', 'customerName', 'amount', 'laborAmount', 'partsAmount', 'diagnosticFee', 'status', 'issuedAt', 'paymentMethod'],
+  customers: ['id', 'name', 'phone', 'email'],
+  inventory: ['sku', 'name', 'quantity', 'reorderLevel', 'unitCost'],
+};
 
 const supportEmail = import.meta.env.VITE_SUPPORT_EMAIL ?? 'support@example.com';
 const supportPhone = import.meta.env.VITE_SUPPORT_PHONE ?? '+1-555-0100';
@@ -229,6 +252,8 @@ function HomePage({
         <Feature title="Role-based access" body="Admin sees every module; Agent, Technician, and Customer see only their permitted workspace." />
         <Feature title="Full-stack persistence" body="Express APIs persist users, sessions, work items, invoices, inventory, and customer data in PostgreSQL." />
         <Feature title="Railway ready" body="Single deployable service serving the API and the built React application." />
+        <Feature title="You own your data" body="Self-hosted on your own PostgreSQL database — no forced vendor migration and no lock-in to switch away from." />
+        <Feature title="No surprise price hikes" body="Priced by your own infrastructure cost, not a per-seat subscription that can double overnight." />
       </section>
     </main>
   );
@@ -345,8 +370,17 @@ function Workspace({
   );
 }
 
+const blankInvoiceDraft = (item?: WorkItem): InvoiceDraft => ({
+  workItemId: item?.id ?? '',
+  amount: item?.estimatedPrice ?? 0,
+  laborAmount: item?.laborEstimate ?? 0,
+  partsAmount: item?.partsEstimate ?? 0,
+  diagnosticFee: item?.diagnosticFee ?? 0,
+  notes: '',
+});
+
 function AdminView(props: DeskActions & { currentUser: AuthUser; pushToast: (message: ReactNode, tone?: ToastTone) => void }) {
-  const { state, createInvoice, updateInvoiceStatus, currentUser, pushToast } = props;
+  const { state, createInvoice, updateInvoiceStatus, recordInvoicePayment, createSavedReport, deleteSavedReport, currentUser, pushToast } = props;
   const metrics = getMetrics(state);
   const localDemoManagedUsers: ManagedUser[] = [
     { ...currentUser, active: true, createdAt: 'Local demo' },
@@ -354,11 +388,11 @@ function AdminView(props: DeskActions & { currentUser: AuthUser; pushToast: (mes
     { id: 'user-technician', name: 'Technician User', email: 'tech@servicedesk.local', role: 'Technician', profile: 'technician', moduleAccess: ['technician'], active: true, createdAt: 'Local demo' },
     { id: 'user-customer', name: 'Customer User', email: 'customer@servicedesk.local', role: 'Customer', profile: 'customer', moduleAccess: ['customer'], active: true, createdAt: 'Local demo' },
   ];
-  const [activeView, setActiveView] = useState<'overview' | 'users' | 'customers' | 'technicians' | 'invoices' | 'catalog' | 'inventory'>('overview');
+  const [activeView, setActiveView] = useState<'overview' | 'users' | 'customers' | 'technicians' | 'invoices' | 'catalog' | 'inventory' | 'notifications' | 'reports'>('overview');
   const [users, setUsers] = useState<ManagedUser[]>(() => (isApiPersistenceEnabled ? [] : localDemoManagedUsers));
   const [userDraft, setUserDraft] = useState<UserDraft>(blankUser);
   const [userError, setUserError] = useState<string | null>(null);
-  const [invoiceDraft, setInvoiceDraft] = useState<InvoiceDraft>({ workItemId: state.workItems[0]?.id ?? '', amount: state.workItems[0]?.estimatedPrice ?? 0, notes: '' });
+  const [invoiceDraft, setInvoiceDraft] = useState<InvoiceDraft>(() => blankInvoiceDraft(state.workItems[0]));
   const [selectedDeviceType, setSelectedDeviceType] = useState<DeviceType | 'All'>('All');
 
   const visibleCategories = useMemo(
@@ -420,11 +454,13 @@ function AdminView(props: DeskActions & { currentUser: AuthUser; pushToast: (mes
     }
   };
 
+  const invoiceTotal = invoiceDraft.laborAmount + invoiceDraft.partsAmount + invoiceDraft.diagnosticFee || invoiceDraft.amount;
+
   const submitInvoice = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     createInvoice(invoiceDraft);
-    setInvoiceDraft({ workItemId: state.workItems[0]?.id ?? '', amount: state.workItems[0]?.estimatedPrice ?? 0, notes: '' });
-    pushToast(`Invoice issued for ${currencyFormatter.format(invoiceDraft.amount)}.`);
+    setInvoiceDraft(blankInvoiceDraft(state.workItems[0]));
+    pushToast(`Invoice issued for ${currencyFormatter.format(invoiceTotal)}.`);
   };
 
   const changeInvoiceStatus = (invoiceId: string, status: InvoiceStatus) => {
@@ -434,6 +470,11 @@ function AdminView(props: DeskActions & { currentUser: AuthUser; pushToast: (mes
 
     updateInvoiceStatus(invoiceId, status);
     pushToast(`Invoice ${invoiceId} marked ${status}.`);
+  };
+
+  const submitPayment = (invoiceId: string, payment: InvoicePaymentDraft) => {
+    recordInvoicePayment(invoiceId, payment);
+    pushToast(`Payment recorded for ${invoiceId} via ${payment.method}.`);
   };
 
   return (
@@ -448,6 +489,8 @@ function AdminView(props: DeskActions & { currentUser: AuthUser; pushToast: (mes
         { id: 'invoices', label: 'Invoices' },
         { id: 'inventory', label: 'Inventory' },
         { id: 'catalog', label: 'Catalog' },
+        { id: 'notifications', label: 'Notifications' },
+        { id: 'reports', label: 'Reports' },
       ]}
       activeView={activeView}
       onViewChange={(view) => setActiveView(view as typeof activeView)}
@@ -494,7 +537,12 @@ function AdminView(props: DeskActions & { currentUser: AuthUser; pushToast: (mes
         </CreatorSplit>
       )}
 
-      {activeView === 'customers' && <RecordTable title="Customer master" rows={state.customers.map((customer) => ({ id: customer.id, primary: customer.name, secondary: `${customer.phone} · ${customer.email}`, meta: `${state.workItems.filter((item) => item.customerId === customer.id).length} repairs` }))} />}
+      {activeView === 'customers' && (
+        <>
+          <div className="card-actions"><button type="button" className="secondary-dark-button" onClick={() => void exportApi.customersCsv()}>Export CSV</button></div>
+          <RecordTable title="Customer master" rows={state.customers.map((customer) => ({ id: customer.id, primary: customer.name, secondary: `${customer.phone} · ${customer.email}`, meta: `${state.workItems.filter((item) => item.customerId === customer.id).length} repairs` }))} />
+        </>
+      )}
       {activeView === 'technicians' && <RecordTable title="Technician master" rows={technicians.map((tech) => ({ id: tech.id, primary: tech.name, secondary: `${tech.email} · ${tech.specialties.join(', ')}`, meta: `${state.workItems.filter((item) => item.assignedTechnicianId === tech.id && !terminalStatuses.includes(item.status)).length} active` }))} />}
 
       {activeView === 'invoices' && (
@@ -503,14 +551,19 @@ function AdminView(props: DeskActions & { currentUser: AuthUser; pushToast: (mes
             <form className="creator-form" onSubmit={submitInvoice}>
               <label>Work item<select value={invoiceDraft.workItemId} onChange={(event) => {
                 const item = state.workItems.find((workItem) => workItem.id === event.target.value);
-                setInvoiceDraft({ ...invoiceDraft, workItemId: event.target.value, amount: item?.estimatedPrice ?? invoiceDraft.amount });
+                setInvoiceDraft(blankInvoiceDraft(item));
               }}>{state.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} · {item.customerName} · {item.deviceModel}</option>)}</select></label>
-              <label>Amount<input type="number" min="1" value={invoiceDraft.amount} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, amount: Number(event.target.value) })} /></label>
+              <div className="form-row">
+                <label>Labor<input type="number" min="0" value={invoiceDraft.laborAmount} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, laborAmount: Number(event.target.value) })} /></label>
+                <label>Parts<input type="number" min="0" value={invoiceDraft.partsAmount} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, partsAmount: Number(event.target.value) })} /></label>
+              </div>
+              <label>Diagnostic fee<input type="number" min="0" value={invoiceDraft.diagnosticFee} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, diagnosticFee: Number(event.target.value) })} /></label>
+              <p className="cost-breakdown"><span>Total <strong>{currencyFormatter.format(invoiceTotal)}</strong></span></p>
               <label>Notes<textarea value={invoiceDraft.notes} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, notes: event.target.value })} placeholder={selectedWorkItem?.requiredChanges ?? 'Invoice notes'} /></label>
               <button className="primary-button" type="submit">Issue invoice</button>
             </form>
           </CreatorFormCard>
-          <InvoiceList invoices={state.invoices} updateInvoiceStatus={changeInvoiceStatus} />
+          <InvoiceList invoices={state.invoices} updateInvoiceStatus={changeInvoiceStatus} recordPayment={submitPayment} />
         </CreatorSplit>
       )}
 
@@ -519,13 +572,25 @@ function AdminView(props: DeskActions & { currentUser: AuthUser; pushToast: (mes
       {activeView === 'catalog' && (
         <ServiceCatalog selectedDeviceType={selectedDeviceType} setSelectedDeviceType={setSelectedDeviceType} visibleCategories={visibleCategories} />
       )}
+
+      {activeView === 'notifications' && <NotificationLog notifications={state.notifications} />}
+
+      {activeView === 'reports' && (
+        <ReportBuilder
+          state={state}
+          savedReports={state.savedReports}
+          createSavedReport={(draft) => createSavedReport(draft, currentUser.id)}
+          deleteSavedReport={deleteSavedReport}
+          pushToast={pushToast}
+        />
+      )}
     </ModuleFrame>
   );
 }
 
 function AgentView(props: DeskActions & { pushToast: (message: ReactNode, tone?: ToastTone) => void }) {
-  const { state, createWorkItem, updateWorkItem, cancelWorkItem, pushToast } = props;
-  const [activeView, setActiveView] = useState<'new' | 'queue' | 'walkins' | 'inventory'>('new');
+  const { state, createWorkItem, updateWorkItem, cancelWorkItem, notifyCustomerNow, pushToast } = props;
+  const [activeView, setActiveView] = useState<'new' | 'queue' | 'board' | 'walkins' | 'inventory'>('new');
   const [draft, setDraft] = useState<WorkItemDraft>(blankDraft);
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState(state.workItems[0]?.id ?? '');
@@ -558,12 +623,14 @@ function AgentView(props: DeskActions & { pushToast: (message: ReactNode, tone?:
     <ModuleFrame
       title="Agent desk"
       subtitle="Create customer requests and manage the repair queue using form and report views."
-      views={[{ id: 'new', label: 'New request' }, { id: 'queue', label: 'All work items' }, { id: 'walkins', label: 'Walk-ins' }, { id: 'inventory', label: 'Inventory' }]}
+      views={[{ id: 'new', label: 'New request' }, { id: 'queue', label: 'All work items' }, { id: 'board', label: 'Board' }, { id: 'walkins', label: 'Walk-ins' }, { id: 'inventory', label: 'Inventory' }]}
       activeView={activeView}
       onViewChange={(view) => setActiveView(view as typeof activeView)}
     >
       {activeView === 'inventory' ? (
         <InventoryView {...props} canManage canReset={false} />
+      ) : activeView === 'board' ? (
+        <KanbanBoard workItems={state.workItems} updateWorkItem={updateWorkItem} pushToast={pushToast} />
       ) : activeView === 'new' ? (
         <CreatorSplit>
           <CreatorFormCard title="Create a work item" eyebrow="Request form">
@@ -596,6 +663,7 @@ function AgentView(props: DeskActions & { pushToast: (message: ReactNode, tone?:
                 <select value={selected.assignedTechnicianId} onChange={(event) => updateWorkItem(selected.id, { assignedTechnicianId: event.target.value, status: 'Assigned' }, 'Agent', 'Agent reassigned the work item.')}>
                   {technicians.map((tech) => <option value={tech.id} key={tech.id}>{tech.name}</option>)}
                 </select>
+                <button type="button" className="secondary-dark-button" onClick={() => { notifyCustomerNow(selected.id); pushToast('Sent a status update to the customer (mock SMS).'); }}>Notify customer</button>
                 {!terminalStatuses.includes(selected.status) && <button type="button" className="danger-button" onClick={() => cancelItem(selected.id)}>Cancel</button>}
               </div>
             </WorkItemCard>
@@ -604,6 +672,57 @@ function AgentView(props: DeskActions & { pushToast: (message: ReactNode, tone?:
         </>
       )}
     </ModuleFrame>
+  );
+}
+
+function KanbanBoard({
+  workItems,
+  updateWorkItem,
+  pushToast,
+}: {
+  workItems: WorkItem[];
+  updateWorkItem: DeskActions['updateWorkItem'];
+  pushToast: (message: ReactNode, tone?: ToastTone) => void;
+}) {
+  const columns = statusFlow;
+  const advance = (item: WorkItem) => {
+    const next = getNextStatuses(item.status)[1];
+    if (!next) {
+      return;
+    }
+
+    if (['Ready for Pickup', 'Delivered'].includes(next) && !item.analysis.trim()) {
+      pushToast('Add a diagnosis/analysis note before moving this to Ready for Pickup or Delivered.', 'error');
+      return;
+    }
+
+    updateWorkItem(item.id, { status: next }, 'Agent', `Moved to ${next} from the board.`);
+    pushToast(`${item.id} moved to ${next}.`);
+  };
+
+  return (
+    <div className="kanban-board">
+      {columns.map((column) => {
+        const items = workItems.filter((item) => item.status === column);
+        return (
+          <div className="kanban-column" key={column}>
+            <h4>{column} <span>{items.length}</span></h4>
+            {items.map((item) => (
+              <article className="kanban-card" key={item.id}>
+                <strong>{item.deviceModel}</strong>
+                <span>{item.id} · {item.customerName}</span>
+                {getNextStatuses(item.status)[1] && (
+                  <button type="button" className="secondary-dark-button" onClick={() => advance(item)}>
+                    Advance to {getNextStatuses(item.status)[1]}
+                  </button>
+                )}
+              </article>
+            ))}
+            {!items.length && <span className="muted">No jobs</span>}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -639,14 +758,30 @@ function TechnicianView(props: DeskActions & { selectedTechnicianId: string; set
 function TechnicianWorkItem({ item, parts, updateWorkItem, adjustInventory, pushToast }: { item: WorkItem; parts: InventoryPart[]; updateWorkItem: DeskActions['updateWorkItem']; adjustInventory: DeskActions['adjustInventory']; pushToast: (message: ReactNode, tone?: ToastTone) => void }) {
   const [analysis, setAnalysis] = useState(item.analysis);
   const [requiredChanges, setRequiredChanges] = useState(item.requiredChanges);
-  const [estimatedPrice, setEstimatedPrice] = useState(String(item.estimatedPrice));
+  const [laborEstimate, setLaborEstimate] = useState(String(item.laborEstimate));
+  const [partsEstimate, setPartsEstimate] = useState(String(item.partsEstimate));
+  const [diagnosticFee, setDiagnosticFee] = useState(String(item.diagnosticFee));
   const [status, setStatus] = useState<WorkItemStatus>(item.status);
   const [promisedBy, setPromisedBy] = useState(item.promisedBy);
   const [partSku, setPartSku] = useState(parts[0]?.sku ?? '');
 
+  const closingStatuses: WorkItemStatus[] = ['Ready for Pickup', 'Delivered'];
+  const blockedByMissingAnalysis = closingStatuses.includes(status) && !analysis.trim();
+  const estimatedPrice = (Number(laborEstimate) || 0) + (Number(partsEstimate) || 0) + (Number(diagnosticFee) || 0);
+
   const save = () => {
+    if (blockedByMissingAnalysis) {
+      pushToast('Add a diagnosis/analysis note before moving this to Ready for Pickup or Delivered.', 'error');
+      return;
+    }
+
     const selectedParts = partSku ? Array.from(new Set([...item.partsRequired, partSku])) : item.partsRequired;
-    updateWorkItem(item.id, { analysis, requiredChanges, estimatedPrice: Number(estimatedPrice) || 0, status, promisedBy, partsRequired: selectedParts }, 'Technician', `Technician updated status to ${status}.`);
+    updateWorkItem(
+      item.id,
+      { analysis, requiredChanges, estimatedPrice, laborEstimate: Number(laborEstimate) || 0, partsEstimate: Number(partsEstimate) || 0, diagnosticFee: Number(diagnosticFee) || 0, status, promisedBy, partsRequired: selectedParts },
+      'Technician',
+      `Technician updated status to ${status}.`,
+    );
     pushToast(`${item.id} updated — status set to ${status}.`);
   };
 
@@ -663,9 +798,18 @@ function TechnicianWorkItem({ item, parts, updateWorkItem, adjustInventory, push
       <WorkItemCard item={item} />
       <label>Analysis<textarea value={analysis} onChange={(event) => setAnalysis(event.target.value)} /></label>
       <label>Required changes<textarea value={requiredChanges} onChange={(event) => setRequiredChanges(event.target.value)} /></label>
-      <div className="form-row"><label>Estimate<input type="number" value={estimatedPrice} onChange={(event) => setEstimatedPrice(event.target.value)} /></label><label>Promised by<input value={promisedBy} onChange={(event) => setPromisedBy(event.target.value)} /></label></div>
+      <div className="form-row">
+        <label>Labor<input type="number" min="0" value={laborEstimate} onChange={(event) => setLaborEstimate(event.target.value)} /></label>
+        <label>Parts<input type="number" min="0" value={partsEstimate} onChange={(event) => setPartsEstimate(event.target.value)} /></label>
+      </div>
+      <div className="form-row">
+        <label>Diagnostic fee<input type="number" min="0" value={diagnosticFee} onChange={(event) => setDiagnosticFee(event.target.value)} /></label>
+        <label>Promised by<input value={promisedBy} onChange={(event) => setPromisedBy(event.target.value)} /></label>
+      </div>
+      <p className="cost-breakdown"><span>Total estimate <strong>{currencyFormatter.format(estimatedPrice)}</strong></span></p>
       <div className="form-row"><label>Status<select value={status} onChange={(event) => setStatus(event.target.value as WorkItemStatus)}>{getNextStatuses(item.status).map((value) => <option key={value}>{value}</option>)}</select></label><label>Part<select value={partSku} onChange={(event) => setPartSku(event.target.value)}>{parts.map((part) => <option value={part.sku} key={part.sku}>{part.name} ({part.quantity})</option>)}</select></label></div>
-      <div className="card-actions"><button type="button" className="primary-button" onClick={save}>Save technician update</button><button type="button" className="secondary-dark-button" onClick={consumePart}>Use part</button></div>
+      {blockedByMissingAnalysis && <p className="workflow-warning">Add a diagnosis/analysis note before this status can be saved.</p>}
+      <div className="card-actions"><button type="button" className="primary-button" onClick={save} disabled={blockedByMissingAnalysis}>Save technician update</button><button type="button" className="secondary-dark-button" onClick={consumePart}>Use part</button></div>
     </article>
   );
 }
@@ -714,6 +858,16 @@ function CustomerView({ state, approveEstimate, pushToast }: DeskActions & { pus
             <ProgressTracker status={selected.status} />
             <h3>Live updates</h3>
             <ul className="timeline">{selected.updates.map((update) => <li key={update.id}><strong>{update.actor}</strong> · {update.message}<span>{update.at}</span></li>)}</ul>
+            {state.notifications.some((notification) => notification.workItemId === selected.id) && (
+              <>
+                <h3>Messages sent to you</h3>
+                <ul className="timeline">
+                  {state.notifications
+                    .filter((notification) => notification.workItemId === selected.id)
+                    .map((notification) => <li key={notification.id}><strong>{notification.channel.toUpperCase()}</strong> · {notification.message}<span>{notification.createdAt}</span></li>)}
+                </ul>
+              </>
+            )}
           </article>
         )}
       />
@@ -758,6 +912,13 @@ function WorkItemCard({ item, children }: { item: WorkItem; children?: ReactNode
       <dl>
         <div><dt>Customer</dt><dd>{item.customerName}</dd></div><div><dt>Source</dt><dd>{item.source}</dd></div><div><dt>Priority</dt><dd>{item.priority}</dd></div><div><dt>Technician</dt><dd>{technician?.name ?? 'Unassigned'}</dd></div><div><dt>Estimate</dt><dd>{currencyFormatter.format(item.estimatedPrice)}</dd></div><div><dt>Promised</dt><dd>{item.promisedBy}</dd></div><div><dt>Serial</dt><dd>{item.serialNumber || 'Not captured'}</dd></div><div><dt>Parts</dt><dd>{item.partsRequired.length ? item.partsRequired.join(', ') : 'None yet'}</dd></div>
       </dl>
+      {item.estimatedPrice > 0 && (
+        <p className="cost-breakdown">
+          <span>Labor <strong>{currencyFormatter.format(item.laborEstimate)}</strong></span>
+          <span>Parts <strong>{currencyFormatter.format(item.partsEstimate)}</strong></span>
+          <span>Diagnostic <strong>{currencyFormatter.format(item.diagnosticFee)}</strong></span>
+        </p>
+      )}
       <p><strong>Analysis:</strong> {item.analysis || 'Pending technician analysis'}</p>
       <p><strong>Changes:</strong> {item.requiredChanges || 'Pending estimate'}</p>
       {children}
@@ -819,20 +980,241 @@ function InventoryView({ state, adjustInventory, addInventoryPart, reset, canMan
   );
 }
 
-function InvoiceList({ invoices, updateInvoiceStatus }: { invoices: DeskActions['state']['invoices']; updateInvoiceStatus: DeskActions['updateInvoiceStatus'] }) {
+function InvoiceList({
+  invoices,
+  updateInvoiceStatus,
+  recordPayment,
+}: {
+  invoices: Invoice[];
+  updateInvoiceStatus: DeskActions['updateInvoiceStatus'];
+  recordPayment: (invoiceId: string, payment: InvoicePaymentDraft) => void;
+}) {
   return (
     <div className="creator-list-panel">
-      <ListHeader title="Invoice register" count={invoices.length} />
+      <div className="list-header"><h3>Invoice register</h3><div className="card-actions"><span>{invoices.length} records</span><button type="button" className="secondary-dark-button" onClick={() => void exportApi.invoicesCsv()}>Export CSV</button></div></div>
       {invoices.map((invoice) => (
-        <div className="record-row" key={invoice.id}>
-          <div><strong>{invoice.id} · {invoice.customerName}</strong><span>{invoice.workItemId} · {currencyFormatter.format(invoice.amount)} · {invoice.issuedAt}</span></div>
-          <select value={invoice.status} onChange={(event) => updateInvoiceStatus(invoice.id, event.target.value as InvoiceStatus)}>
-            {(['Draft', 'Issued', 'Paid', 'Void'] satisfies InvoiceStatus[]).map((status) => <option key={status}>{status}</option>)}
-          </select>
-        </div>
+        <InvoiceRow key={invoice.id} invoice={invoice} updateInvoiceStatus={updateInvoiceStatus} recordPayment={recordPayment} />
       ))}
     </div>
   );
+}
+
+function InvoiceRow({
+  invoice,
+  updateInvoiceStatus,
+  recordPayment,
+}: {
+  invoice: Invoice;
+  updateInvoiceStatus: DeskActions['updateInvoiceStatus'];
+  recordPayment: (invoiceId: string, payment: InvoicePaymentDraft) => void;
+}) {
+  const [method, setMethod] = useState<PaymentMethod>('Card (Test Mode)');
+  const [reference, setReference] = useState('');
+
+  return (
+    <div className="creator-record-card">
+      <div className="ticket-header">
+        <div><strong>{invoice.id} · {invoice.customerName}</strong><span>{invoice.workItemId} · {invoice.issuedAt}</span></div>
+        <span className={`status ${invoice.status.toLowerCase()}`}>{invoice.status}</span>
+      </div>
+      <p className="cost-breakdown">
+        <span>Labor <strong>{currencyFormatter.format(invoice.laborAmount)}</strong></span>
+        <span>Parts <strong>{currencyFormatter.format(invoice.partsAmount)}</strong></span>
+        <span>Diagnostic <strong>{currencyFormatter.format(invoice.diagnosticFee)}</strong></span>
+        <span>Total <strong>{currencyFormatter.format(invoice.amount)}</strong></span>
+      </p>
+      {invoice.status === 'Paid' ? (
+        <span className="muted">Paid via {invoice.paymentMethod || 'unknown method'} · Ref {invoice.paymentReference || '—'}</span>
+      ) : invoice.status === 'Issued' ? (
+        <div className="card-actions">
+          <select value={method} onChange={(event) => setMethod(event.target.value as PaymentMethod)}>
+            {paymentMethods.map((option) => <option key={option}>{option}</option>)}
+          </select>
+          <input placeholder="Reference (optional)" value={reference} onChange={(event) => setReference(event.target.value)} />
+          <button type="button" className="primary-button" onClick={() => recordPayment(invoice.id, { method, reference })}>Record payment</button>
+          <button type="button" className="danger-button" onClick={() => updateInvoiceStatus(invoice.id, 'Void')}>Void</button>
+        </div>
+      ) : (
+        <select value={invoice.status} onChange={(event) => updateInvoiceStatus(invoice.id, event.target.value as InvoiceStatus)}>
+          {(['Draft', 'Issued', 'Void'] satisfies InvoiceStatus[]).map((status) => <option key={status}>{status}</option>)}
+        </select>
+      )}
+    </div>
+  );
+}
+
+function NotificationLog({ notifications }: { notifications: DeskActions['state']['notifications'] }) {
+  const channelIcon: Record<string, string> = { sms: '💬', whatsapp: '🟢', email: '✉️' };
+
+  return (
+    <div className="creator-panel">
+      <div className="creator-panel-header"><div><p className="eyebrow">Outbound customer notifications</p><h2>Notification log</h2></div></div>
+      <div className="creator-list-panel">
+        <ListHeader title="Sent messages" count={notifications.length} />
+        {notifications.length ? notifications.map((notification) => (
+          <div className="record-row notification-row" key={notification.id}>
+            <span className="channel-badge">{channelIcon[notification.channel] ?? '🔔'} {notification.channel}</span>
+            <div><strong>{notification.recipient}</strong><span>{notification.message}</span></div>
+            <span className="record-meta">{notification.createdAt}</span>
+          </div>
+        )) : <EmptyState title="No notifications yet" body="Status changes on a work item automatically text the customer (mock provider — no SMS account is connected yet)." />}
+      </div>
+    </div>
+  );
+}
+
+function ReportBuilder({
+  state,
+  savedReports,
+  createSavedReport,
+  deleteSavedReport,
+  pushToast,
+}: {
+  state: DeskActions['state'];
+  savedReports: SavedReport[];
+  createSavedReport: (draft: SavedReportDraft) => void;
+  deleteSavedReport: (id: string) => void;
+  pushToast: (message: ReactNode, tone?: ToastTone) => void;
+}) {
+  const [entity, setEntity] = useState<ReportEntity>('workItems');
+  const [columns, setColumns] = useState<string[]>(reportColumnOptions.workItems.slice(0, 4));
+  const [filterField, setFilterField] = useState('');
+  const [filterValue, setFilterValue] = useState('');
+  const [reportName, setReportName] = useState('');
+
+  const changeEntity = (nextEntity: ReportEntity) => {
+    setEntity(nextEntity);
+    setColumns(reportColumnOptions[nextEntity].slice(0, 4));
+    setFilterField('');
+    setFilterValue('');
+  };
+
+  const toggleColumn = (column: string) => {
+    setColumns((current) => (current.includes(column) ? current.filter((value) => value !== column) : [...current, column]));
+  };
+
+  const rows = useMemo(() => buildReportRows(state, entity, columns, filterField, filterValue), [state, entity, columns, filterField, filterValue]);
+
+  const runSavedReport = (report: SavedReport) => {
+    setEntity(report.entity);
+    setColumns(report.columns);
+    setFilterField(report.filterField);
+    setFilterValue(report.filterValue);
+  };
+
+  const saveReport = () => {
+    if (!reportName.trim() || !columns.length) {
+      pushToast('Give the report a name and at least one column.', 'error');
+      return;
+    }
+
+    createSavedReport({ name: reportName, entity, columns, filterField, filterValue });
+    pushToast(`Saved report "${reportName}".`);
+    setReportName('');
+  };
+
+  return (
+    <CreatorSplit>
+      <CreatorFormCard title="Report builder" eyebrow="Build-your-own report">
+        <div className="creator-form">
+          <label>Entity<select value={entity} onChange={(event) => changeEntity(event.target.value as ReportEntity)}>
+            {(Object.keys(reportEntityLabels) as ReportEntity[]).map((option) => <option key={option} value={option}>{reportEntityLabels[option]}</option>)}
+          </select></label>
+          <label>Columns
+            <span className="checkbox-grid">
+              {reportColumnOptions[entity].map((column) => (
+                <label className="inline-check" key={column}><input type="checkbox" checked={columns.includes(column)} onChange={() => toggleColumn(column)} /> {column}</label>
+              ))}
+            </span>
+          </label>
+          <div className="form-row">
+            <label>Filter field<select value={filterField} onChange={(event) => setFilterField(event.target.value)}>
+              <option value="">No filter</option>
+              {reportColumnOptions[entity].map((column) => <option key={column} value={column}>{column}</option>)}
+            </select></label>
+            <label>Contains<input value={filterValue} onChange={(event) => setFilterValue(event.target.value)} placeholder="Filter value" disabled={!filterField} /></label>
+          </div>
+          <div className="form-row">
+            <label>Report name<input value={reportName} onChange={(event) => setReportName(event.target.value)} placeholder="e.g. Overdue invoices" /></label>
+          </div>
+          <div className="card-actions">
+            <button type="button" className="primary-button" onClick={saveReport}>Save report</button>
+            <button type="button" className="secondary-dark-button" onClick={() => downloadRowsAsCsv(`${entity}-report.csv`, columns, rows)}>Export CSV</button>
+          </div>
+        </div>
+      </CreatorFormCard>
+      <div className="creator-list-panel">
+        <ListHeader title={`Preview · ${reportEntityLabels[entity]}`} count={rows.length} />
+        {rows.length ? rows.slice(0, 25).map((row, index) => (
+          <div className="record-row" key={index}>
+            <div><strong>{row[columns[0]] ?? ''}</strong><span>{columns.slice(1).map((column) => row[column]).filter(Boolean).join(' · ')}</span></div>
+          </div>
+        )) : <EmptyState title="No matching records" body="Adjust the filter or pick different columns." />}
+        {savedReports.length > 0 && (
+          <>
+            <ListHeader title="Saved reports" count={savedReports.length} />
+            {savedReports.map((report) => (
+              <div className="record-row" key={report.id}>
+                <div><strong>{report.name}</strong><span>{reportEntityLabels[report.entity]} · {report.columns.length} columns</span></div>
+                <div className="card-actions">
+                  <button type="button" className="secondary-dark-button" onClick={() => runSavedReport(report)}>Run</button>
+                  <button type="button" className="danger-button" onClick={() => deleteSavedReport(report.id)}>Delete</button>
+                </div>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+    </CreatorSplit>
+  );
+}
+
+function getEntityRows(state: DeskActions['state'], entity: ReportEntity): Array<Record<string, unknown>> {
+  const rows: unknown[] = (() => {
+    switch (entity) {
+      case 'workItems':
+        return state.workItems;
+      case 'invoices':
+        return state.invoices;
+      case 'customers':
+        return state.customers;
+      case 'inventory':
+        return state.inventoryParts;
+      default:
+        return [];
+    }
+  })();
+
+  return rows as Array<Record<string, unknown>>;
+}
+
+function buildReportRows(state: DeskActions['state'], entity: ReportEntity, columns: string[], filterField: string, filterValue: string): Array<Record<string, string>> {
+  let rows = getEntityRows(state, entity);
+
+  if (filterField && filterValue.trim()) {
+    rows = rows.filter((row) => String(row[filterField] ?? '').toLowerCase().includes(filterValue.trim().toLowerCase()));
+  }
+
+  return rows.map((row) => {
+    const projected: Record<string, string> = {};
+    for (const column of columns) {
+      const value = row[column];
+      projected[column] = value === undefined || value === null ? '' : String(value);
+    }
+    return projected;
+  });
+}
+
+function downloadRowsAsCsv(filename: string, headers: string[], rows: Array<Record<string, string>>) {
+  const escapeCell = (value: string) => (/[",\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value);
+  const lines = [headers.join(','), ...rows.map((row) => headers.map((header) => escapeCell(row[header] ?? '')).join(','))];
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 function ModuleFrame({ title, subtitle, views, activeView, onViewChange, toolbar, children }: { title: string; subtitle: string; views: Array<{ id: string; label: string }>; activeView: string; onViewChange: (view: string) => void; toolbar?: ReactNode; children: ReactNode }) {

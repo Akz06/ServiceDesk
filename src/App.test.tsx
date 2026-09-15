@@ -69,10 +69,12 @@ describe('App workflow', () => {
 
     const scoped = within(card as HTMLElement);
     await user.selectOptions(scoped.getByLabelText(/status/i), 'Estimate Shared');
-    await user.clear(scoped.getByLabelText(/estimate/i));
-    await user.type(scoped.getByLabelText(/estimate/i), '155');
+    await user.clear(scoped.getByLabelText(/^labor/i));
+    await user.type(scoped.getByLabelText(/^labor/i), '155');
+    await user.clear(scoped.getByLabelText(/^parts/i));
+    await user.clear(scoped.getByLabelText(/diagnostic fee/i));
     await user.click(scoped.getByRole('button', { name: /save technician update/i }));
 
-    expect(screen.getByText('$155')).toBeInTheDocument();
+    expect(screen.getAllByText('$155').length).toBeGreaterThan(0);
   });
 });

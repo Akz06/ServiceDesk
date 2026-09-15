@@ -38,9 +38,41 @@ Implemented improvements:
 Recommended future UX refinements:
 
 - Split `src/App.tsx` into smaller module components for maintainability.
-- Add table sorting, pagination, and saved report filters.
+- Add table sorting and pagination.
 - Add skeleton loading states for API-backed pages.
-- Add outbound SMS/WhatsApp notifications on status change, and a phone-first technician view.
+
+## Competitive Teardown: What Shipped
+
+Following a competitive review against RepairShopr/Syncro, RepairDesk, RepairQ, Fixably, Orderry, and Zoho, this pass added the highest-priority gaps that every competitor already covers, plus a few differentiators:
+
+- **Automated customer notifications** — status changes on a work item (and new work-item creation) automatically log an outbound SMS via a pluggable `NotificationProvider` (`server/notifications.ts`). No SMS/WhatsApp account is wired up yet, so it runs on a `MockNotificationProvider` that marks every message "sent" — swap in a real Twilio-backed provider behind the same interface to go live. Agents can also send an ad-hoc "Notify customer" message from a work item's detail panel. Admin has a **Notifications** log view; customers see messages sent to them inline in their repair timeline.
+- **Invoice payments** — a "Record payment" flow (method + reference) marks an invoice Paid via a `MockPaymentProvider`-style flow (no real Stripe/Razorpay account connected — drop one in behind `recordInvoicePayment` in `server/repository.ts`).
+- **CSV export** — Admin can export Invoices and Customers as CSV (`GET /api/export/invoices.csv`, `GET /api/export/customers.csv`) for import into QuickBooks/Xero/any spreadsheet. This is export-only, not a live two-way accounting sync.
+- **Report builder** — Admin's **Reports** tab lets you pick an entity (work items/invoices/customers/inventory), pick columns, filter, preview, export to CSV, and save/re-run named report definitions.
+- **Kanban board** — Agent's **Board** view shows work items grouped by status with one-click "Advance to next status."
+- **Itemized cost breakdown** — estimates and invoices now break out labor / parts / diagnostic fee instead of one lump total.
+- **Enforced workflow step** — a work item can't move to Ready for Pickup or Delivered without a diagnosis/analysis note on file (enforced both client-side and server-side).
+- **No-lock-in / transparent pricing messaging** — added to the public homepage, since this is a genuine structural advantage of self-hosting on your own Postgres database.
+
+### Not shipped this pass (tracked, not forgotten)
+
+These were identified in the same competitive review but need either a real third-party account/credentials, a bigger schema change, or a dedicated pass of their own:
+
+- Real SMS/WhatsApp/email delivery (needs a Twilio/WhatsApp Business account — the provider interface is ready)
+- Real payment gateway (needs a Stripe/Razorpay account — the provider seam is ready)
+- Live two-way QuickBooks/Xero sync (currently CSV export only)
+- POS-lite counter/walk-in checkout with barcode scanning for retail parts sales
+- Offline-tolerant technician PWA with queued photo capture
+- Multi-location/franchise mode
+- Marketing automation, loyalty/membership programs, and a "customers gone quiet" win-back report
+- Serial-level part tracking tied to warranty expiry
+- Trade-in valuation, e-waste disposal certificates, device repair passport, parts authenticity verification
+- AI-assisted diagnosis, confidence-scored pre-checks, and AI chat intake triage
+- Vertical OEM integrations (e.g. Apple GSX), unified omni-channel inbox, localization
+
+### Known limitation worth flagging
+
+`GET /api/state` currently returns the full dataset (all customers, all work items, all invoices) to any authenticated user — the Customer module only *displays* the signed-in customer's own records client-side rather than the server scoping the query. There is also no link yet between a `customer`-profile user account and a specific `customers` row (the customer picker in the Customer module is still a manual selector, as already called out above under "Customer-specific login binding"). Both are worth a dedicated security pass before onboarding real customer data.
 
 ## App Experience
 
@@ -259,10 +291,16 @@ POST /api/work-items
 PATCH /api/work-items/:id
 POST /api/work-items/:id/approval
 POST /api/work-items/:id/cancel
+POST /api/work-items/:id/notify
 PATCH /api/inventory/:sku/adjust
 PUT /api/inventory/:sku
 POST /api/invoices
 PATCH /api/invoices/:id
+POST /api/invoices/:id/payment
+POST /api/reports
+DELETE /api/reports/:id
+GET /api/export/invoices.csv
+GET /api/export/customers.csv
 POST /api/reset
 ```
 
@@ -285,6 +323,7 @@ Current migrations:
 - `001_init.sql`: customers, work items, updates, inventory
 - `002_auth.sql`: users and user sessions
 - `003_erp_modules.sql`: invoices
+- `004_growth_modules.sql`: notifications, saved reports, invoice payment fields, itemized cost breakdown columns
 
 ## Validation
 

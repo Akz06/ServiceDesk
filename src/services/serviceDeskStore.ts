@@ -1,6 +1,19 @@
 import { initialServiceDeskState } from '../data/repairShop';
 import { statusFlow, terminalStatuses } from '../domain/constants';
-import type { Customer, InventoryPart, InvoiceDraft, InvoiceStatus, ServiceDeskState, UserRole, WorkItem, WorkItemDraft, WorkItemStatus } from '../types';
+import type {
+  Customer,
+  InventoryPart,
+  InvoiceDraft,
+  InvoicePaymentDraft,
+  InvoiceStatus,
+  Notification,
+  SavedReportDraft,
+  ServiceDeskState,
+  UserRole,
+  WorkItem,
+  WorkItemDraft,
+  WorkItemStatus,
+} from '../types';
 
 export const STORAGE_KEY = 'service-desk-state-v1';
 
@@ -11,7 +24,22 @@ const cloneState = (state: ServiceDeskState): ServiceDeskState => ({
   workItems: state.workItems.map((item) => ({ ...item, partsRequired: [...item.partsRequired], updates: item.updates.map((update) => ({ ...update })) })),
   inventoryParts: state.inventoryParts.map((part) => ({ ...part, compatibleWith: [...part.compatibleWith] })),
   invoices: state.invoices.map((invoice) => ({ ...invoice })),
+  notifications: (state.notifications ?? []).map((notification) => ({ ...notification })),
+  savedReports: (state.savedReports ?? []).map((report) => ({ ...report, columns: [...report.columns] })),
 });
+
+let notificationSequence = 0;
+
+const mockNotification = (state: ServiceDeskState, input: Omit<Notification, 'id' | 'status' | 'provider' | 'createdAt'>): Notification => {
+  notificationSequence += 1;
+  return {
+    ...input,
+    id: `NOTE-LOCAL-${notificationSequence}`,
+    status: 'sent',
+    provider: 'mock',
+    createdAt: nowStamp(),
+  };
+};
 
 const nextNumericId = (prefix: string, values: string[], fallback: number) => {
   const max = values.reduce((highest, value) => {
@@ -36,7 +64,13 @@ export const loadServiceDeskState = (): ServiceDeskState => {
 
   try {
     const parsed = JSON.parse(stored) as Partial<ServiceDeskState>;
-    return { ...getInitialServiceDeskState(), ...parsed, invoices: parsed.invoices ?? [] };
+    return {
+      ...getInitialServiceDeskState(),
+      ...parsed,
+      invoices: parsed.invoices ?? [],
+      notifications: parsed.notifications ?? [],
+      savedReports: parsed.savedReports ?? [],
+    };
   } catch {
     return getInitialServiceDeskState();
   }
@@ -83,6 +117,9 @@ export const createWorkItemRecord = (state: ServiceDeskState, draft: WorkItemDra
     analysis: 'Technician analysis pending.',
     requiredChanges: 'Pending diagnosis.',
     estimatedPrice: 0,
+    laborEstimate: 0,
+    partsEstimate: 0,
+    diagnosticFee: 0,
     approvedByCustomer: false,
     partsRequired: [],
     createdAt: stamp,
@@ -94,12 +131,23 @@ export const createWorkItemRecord = (state: ServiceDeskState, draft: WorkItemDra
     ],
   };
 
+  const notification = mockNotification(state, {
+    workItemId: workItem.id,
+    customerId: customer.id,
+    channel: 'sms',
+    recipient: customer.phone,
+    message: `We received your ${workItem.deviceModel} repair request (${workItem.id}). We'll text you as the status changes.`,
+  });
+
   return {
     ...state,
     customers: existingCustomer ? state.customers : [customer, ...state.customers],
     workItems: [workItem, ...state.workItems],
+    notifications: [notification, ...state.notifications],
   };
 };
+
+const closingStatuses: WorkItemStatus[] = ['Ready for Pickup', 'Delivered'];
 
 export const updateWorkItemRecord = (
   state: ServiceDeskState,
@@ -109,6 +157,26 @@ export const updateWorkItemRecord = (
   message: string,
 ): ServiceDeskState => {
   const stamp = nowStamp();
+  const current = state.workItems.find((item) => item.id === id);
+  if (!current) {
+    return state;
+  }
+
+  const next = { ...current, ...patch };
+  if (closingStatuses.includes(next.status) && !next.analysis.trim()) {
+    return state;
+  }
+
+  const statusChanged = next.status !== current.status;
+  const notification = statusChanged
+    ? mockNotification(state, {
+        workItemId: id,
+        customerId: next.customerId,
+        channel: 'sms',
+        recipient: next.customerPhone,
+        message: `Update on your ${next.deviceModel} repair (${id}): status is now "${next.status}".`,
+      })
+    : null;
 
   return {
     ...state,
@@ -127,7 +195,25 @@ export const updateWorkItemRecord = (
         ],
       };
     }),
+    notifications: notification ? [notification, ...state.notifications] : state.notifications,
   };
+};
+
+export const notifyCustomerNowRecord = (state: ServiceDeskState, workItemId: string): ServiceDeskState => {
+  const item = state.workItems.find((candidate) => candidate.id === workItemId);
+  if (!item) {
+    return state;
+  }
+
+  const notification = mockNotification(state, {
+    workItemId: item.id,
+    customerId: item.customerId,
+    channel: 'sms',
+    recipient: item.customerPhone,
+    message: `Update on your ${item.deviceModel} repair (${item.id}): status is "${item.status}".`,
+  });
+
+  return { ...state, notifications: [notification, ...state.notifications] };
 };
 
 export const approveEstimateRecord = (state: ServiceDeskState, id: string): ServiceDeskState =>
@@ -160,6 +246,11 @@ export const createInvoiceRecord = (state: ServiceDeskState, draft: InvoiceDraft
     return state;
   }
 
+  const laborAmount = Math.max(0, Number(draft.laborAmount) || 0);
+  const partsAmount = Math.max(0, Number(draft.partsAmount) || 0);
+  const diagnosticFee = Math.max(0, Number(draft.diagnosticFee) || 0);
+  const breakdownTotal = laborAmount + partsAmount + diagnosticFee;
+
   return {
     ...state,
     invoices: [
@@ -168,10 +259,15 @@ export const createInvoiceRecord = (state: ServiceDeskState, draft: InvoiceDraft
         workItemId: item.id,
         customerId: item.customerId,
         customerName: item.customerName,
-        amount: Number(draft.amount) || item.estimatedPrice,
+        amount: breakdownTotal > 0 ? breakdownTotal : Number(draft.amount) || item.estimatedPrice,
+        laborAmount,
+        partsAmount,
+        diagnosticFee,
         status: 'Issued',
         issuedAt: nowStamp(),
         paidAt: '',
+        paymentMethod: '',
+        paymentReference: '',
         notes: draft.notes,
       },
       ...state.invoices,
@@ -182,6 +278,60 @@ export const createInvoiceRecord = (state: ServiceDeskState, draft: InvoiceDraft
 export const updateInvoiceStatusRecord = (state: ServiceDeskState, id: string, status: InvoiceStatus): ServiceDeskState => ({
   ...state,
   invoices: state.invoices.map((invoice) => (invoice.id === id ? { ...invoice, status, paidAt: status === 'Paid' ? nowStamp() : '' } : invoice)),
+});
+
+export const recordInvoicePaymentRecord = (state: ServiceDeskState, id: string, payment: InvoicePaymentDraft): ServiceDeskState => {
+  const invoice = state.invoices.find((candidate) => candidate.id === id);
+  if (!invoice || invoice.status === 'Void') {
+    return state;
+  }
+
+  const stamp = nowStamp();
+  const notification = mockNotification(state, {
+    workItemId: invoice.workItemId,
+    customerId: invoice.customerId,
+    channel: 'email',
+    recipient: invoice.customerName,
+    message: `Payment received for invoice ${id} (${payment.method}). Thank you!`,
+  });
+
+  return {
+    ...state,
+    invoices: state.invoices.map((candidate) =>
+      candidate.id === id
+        ? { ...candidate, status: 'Paid', paidAt: stamp, paymentMethod: payment.method, paymentReference: payment.reference.trim() || `TEST-${id}` }
+        : candidate,
+    ),
+    notifications: [notification, ...state.notifications],
+  };
+};
+
+export const createSavedReportRecord = (state: ServiceDeskState, draft: SavedReportDraft, createdBy: string): ServiceDeskState => {
+  if (!draft.name.trim() || !draft.columns.length) {
+    return state;
+  }
+
+  return {
+    ...state,
+    savedReports: [
+      {
+        id: `RPT-LOCAL-${Date.now()}`,
+        createdBy,
+        name: draft.name.trim(),
+        entity: draft.entity,
+        columns: draft.columns,
+        filterField: draft.filterField,
+        filterValue: draft.filterValue,
+        createdAt: nowStamp(),
+      },
+      ...state.savedReports,
+    ],
+  };
+};
+
+export const deleteSavedReportRecord = (state: ServiceDeskState, id: string): ServiceDeskState => ({
+  ...state,
+  savedReports: state.savedReports.filter((report) => report.id !== id),
 });
 
 export const getNextStatuses = (status: WorkItemStatus): WorkItemStatus[] => {

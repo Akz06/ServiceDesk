@@ -2,7 +2,19 @@ import cors from 'cors';
 import express from 'express';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { AuthUser, InventoryPart, InvoiceDraft, InvoiceStatus, ModuleId, UserDraft, UserRole, WorkItem, WorkItemDraft } from '../src/types';
+import type {
+  AuthUser,
+  InventoryPart,
+  InvoiceDraft,
+  InvoiceStatus,
+  ModuleId,
+  PaymentMethod,
+  SavedReportDraft,
+  UserDraft,
+  UserRole,
+  WorkItem,
+  WorkItemDraft,
+} from '../src/types';
 import { canAccessModule, createUser, getUserForToken, listUsers, loginWithPassword, logoutToken, seedAuthUsersIfEmpty, updateUser } from './auth';
 import { runMigrations } from './migrate';
 import {
@@ -10,14 +22,26 @@ import {
   approveEstimate,
   cancelWorkItem,
   createInvoice,
+  createSavedReport,
   createWorkItem,
+  deleteSavedReport,
   getServiceDeskState,
+  notifyCustomerNow,
+  recordInvoicePayment,
   replaceAllData,
   seedInitialDataIfEmpty,
   updateInvoiceStatus,
   updateWorkItem,
   upsertInventoryPart,
 } from './repository';
+
+const csvCell = (value: string | number) => {
+  const text = String(value);
+  return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+};
+
+const toCsv = (headers: string[], rows: Array<Array<string | number>>) =>
+  [headers, ...rows].map((row) => row.map(csvCell).join(',')).join('\n');
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -160,6 +184,64 @@ app.post('/api/invoices', requireAuth, requireAnyModule('admin', 'agent'), async
 app.patch('/api/invoices/:id', requireAuth, requireAnyModule('admin', 'agent'), asyncHandler(async (request, response) => {
   const body = request.body as { status: InvoiceStatus };
   response.json(await updateInvoiceStatus(String(request.params.id), body.status));
+}));
+
+app.post('/api/invoices/:id/payment', requireAuth, requireAnyModule('admin', 'agent'), asyncHandler(async (request, response) => {
+  const body = request.body as { method: PaymentMethod; reference: string };
+  response.json(await recordInvoicePayment(String(request.params.id), body.method, String(body.reference ?? '')));
+}));
+
+app.post('/api/work-items/:id/notify', requireAuth, requireAnyModule('admin', 'agent'), asyncHandler(async (request, response) => {
+  response.json(await notifyCustomerNow(String(request.params.id)));
+}));
+
+app.post('/api/reports', requireAuth, requireAdmin, asyncHandler(async (request: AuthenticatedRequest, response) => {
+  response.status(201).json(await createSavedReport(request.body as SavedReportDraft, String(request.user?.id ?? '')));
+}));
+
+app.delete('/api/reports/:id', requireAuth, requireAdmin, asyncHandler(async (request: AuthenticatedRequest, response) => {
+  response.json(await deleteSavedReport(String(request.params.id), String(request.user?.id ?? '')));
+}));
+
+app.get('/api/export/invoices.csv', requireAuth, requireAdmin, asyncHandler(async (_request, response) => {
+  const state = await getServiceDeskState();
+  const csv = toCsv(
+    ['Invoice ID', 'Work Item', 'Customer', 'Labor', 'Parts', 'Diagnostic Fee', 'Total', 'Status', 'Issued At', 'Paid At', 'Payment Method', 'Payment Reference'],
+    state.invoices.map((invoice) => [
+      invoice.id,
+      invoice.workItemId,
+      invoice.customerName,
+      invoice.laborAmount,
+      invoice.partsAmount,
+      invoice.diagnosticFee,
+      invoice.amount,
+      invoice.status,
+      invoice.issuedAt,
+      invoice.paidAt,
+      invoice.paymentMethod,
+      invoice.paymentReference,
+    ]),
+  );
+  response.setHeader('Content-Type', 'text/csv');
+  response.setHeader('Content-Disposition', 'attachment; filename="invoices.csv"');
+  response.send(csv);
+}));
+
+app.get('/api/export/customers.csv', requireAuth, requireAdmin, asyncHandler(async (_request, response) => {
+  const state = await getServiceDeskState();
+  const csv = toCsv(
+    ['Customer ID', 'Name', 'Phone', 'Email', 'Repairs'],
+    state.customers.map((customer) => [
+      customer.id,
+      customer.name,
+      customer.phone,
+      customer.email,
+      state.workItems.filter((item) => item.customerId === customer.id).length,
+    ]),
+  );
+  response.setHeader('Content-Type', 'text/csv');
+  response.setHeader('Content-Disposition', 'attachment; filename="customers.csv"');
+  response.send(csv);
 }));
 
 app.post('/api/reset', requireAuth, requireAdmin, asyncHandler(async (_request, response) => {
