@@ -8,7 +8,6 @@ import {
   currencyFormatter,
   defaultModuleForProfile,
   deviceTypes,
-  moduleDescriptions,
   moduleLabels,
   priorities,
   statusFlow,
@@ -320,11 +319,7 @@ function Workspace({
             >
               {mobileNavOpen ? '✕' : '☰'}
             </button>
-            <div>
-              <p className="eyebrow">{activeLabel} workspace</p>
-              <h1>{activeLabel} module</h1>
-              <p>{moduleDescriptions[activeModule]}</p>
-            </div>
+            <h1 className="topbar-crumb">{activeLabel} workspace</h1>
           </div>
           <div className="user-menu">
             <span>{user.name}</span>
@@ -475,33 +470,37 @@ function AdminView(props: DeskActions & { currentUser: AuthUser; pushToast: (mes
       title="Admin control center"
       subtitle="Creator-style reports and forms for user administration, master data, billing, and business monitoring."
       views={[
-        { id: 'overview', label: 'Overview' },
-        { id: 'users', label: 'Users' },
-        { id: 'customers', label: 'Customers' },
-        { id: 'technicians', label: 'Technicians' },
-        { id: 'invoices', label: 'Invoices' },
-        { id: 'inventory', label: 'Inventory' },
-        { id: 'catalog', label: 'Catalog' },
-        { id: 'notifications', label: 'Notifications' },
-        { id: 'reports', label: 'Reports' },
+        { id: 'overview', label: 'Overview', group: 'Overview' },
+        { id: 'users', label: 'Users', group: 'People' },
+        { id: 'customers', label: 'Customers', group: 'People' },
+        { id: 'technicians', label: 'Technicians', group: 'People' },
+        { id: 'inventory', label: 'Inventory', group: 'Operations' },
+        { id: 'catalog', label: 'Catalog', group: 'Operations' },
+        { id: 'invoices', label: 'Invoices', group: 'Billing' },
+        { id: 'reports', label: 'Reports', group: 'Insights' },
+        { id: 'notifications', label: 'Notifications', group: 'Insights' },
       ]}
       activeView={activeView}
       onViewChange={(view) => setActiveView(view as typeof activeView)}
     >
       {activeView === 'overview' && (
-        <div className="creator-report-grid">
-          <MetricCard label="Customers" value={String(state.customers.length)} helper="Customer master records" />
-          <MetricCard label="Technicians" value={String(technicians.length)} helper="Repair bench users" />
-          <MetricCard label="Invoices" value={String(state.invoices.length)} helper={`${currencyFormatter.format(metrics.invoicedRevenue)} total`} />
-          <MetricCard label="Parts" value={String(state.inventoryParts.length)} helper="Inventory SKUs" />
-          <RecordTable
-            title="Recent work items"
-            rows={state.workItems.slice(0, 6).map((item) => ({ id: item.id, primary: item.deviceModel, secondary: `${item.customerName} · ${item.status}`, meta: currencyFormatter.format(item.estimatedPrice) }))}
-          />
-          <RecordTable
-            title="Low stock alerts"
-            rows={state.inventoryParts.filter((part) => part.quantity <= part.reorderLevel).map((part) => ({ id: part.sku, primary: part.name, secondary: `${part.quantity} available · reorder at ${part.reorderLevel}`, meta: currencyFormatter.format(part.unitCost) }))}
-          />
+        <div className="creator-page">
+          <div className="creator-report-grid">
+            <MetricCard label="Customers" value={String(state.customers.length)} helper="Customer master records" />
+            <MetricCard label="Technicians" value={String(technicians.length)} helper="Repair bench users" />
+            <MetricCard label="Invoices" value={String(state.invoices.length)} helper={`${currencyFormatter.format(metrics.invoicedRevenue)} total`} />
+            <MetricCard label="Parts" value={String(state.inventoryParts.length)} helper="Inventory SKUs" />
+          </div>
+          <div className="creator-record-grid">
+            <RecordTable
+              title="Recent work items"
+              rows={state.workItems.slice(0, 6).map((item) => ({ id: item.id, primary: item.deviceModel, secondary: `${item.customerName} · ${item.status}`, meta: currencyFormatter.format(item.estimatedPrice) }))}
+            />
+            <RecordTable
+              title="Low stock alerts"
+              rows={state.inventoryParts.filter((part) => part.quantity <= part.reorderLevel).map((part) => ({ id: part.sku, primary: part.name, secondary: `${part.quantity} available · reorder at ${part.reorderLevel}`, meta: currencyFormatter.format(part.unitCost) }))}
+            />
+          </div>
         </div>
       )}
 
@@ -622,7 +621,13 @@ function AgentView(props: DeskActions & { pushToast: (message: ReactNode, tone?:
     <ModuleFrame
       title="Agent desk"
       subtitle="Create customer requests and manage the repair queue using form and report views."
-      views={[{ id: 'new', label: 'New request' }, { id: 'queue', label: 'All work items' }, { id: 'board', label: 'Board' }, { id: 'walkins', label: 'Walk-ins' }, { id: 'inventory', label: 'Inventory' }]}
+      views={[
+        { id: 'new', label: 'New request', group: 'New request' },
+        { id: 'queue', label: 'All work items', group: 'Work queue' },
+        { id: 'board', label: 'Board', group: 'Work queue' },
+        { id: 'walkins', label: 'Walk-ins', group: 'Work queue' },
+        { id: 'inventory', label: 'Inventory', group: 'Inventory' },
+      ]}
       activeView={activeView}
       onViewChange={(view) => setActiveView(view as typeof activeView)}
     >
@@ -737,7 +742,12 @@ function TechnicianView(props: DeskActions & { selectedTechnicianId: string; set
     <ModuleFrame
       title="Analysis, estimates, and repair updates"
       subtitle="Technicians work from assigned reports, open a record, update diagnosis, consume parts, and move status forward."
-      views={[{ id: 'assigned', label: 'Assigned jobs' }, { id: 'estimates', label: 'Estimates' }, { id: 'repair', label: 'In repair' }, { id: 'parts', label: 'Parts' }]}
+      views={[
+        { id: 'assigned', label: 'Assigned jobs', group: 'My jobs' },
+        { id: 'estimates', label: 'Estimates', group: 'My jobs' },
+        { id: 'repair', label: 'In repair', group: 'My jobs' },
+        { id: 'parts', label: 'Parts', group: 'Parts' },
+      ]}
       activeView={activeView}
       onViewChange={(view) => setActiveView(view as typeof activeView)}
       toolbar={activeView !== 'parts' ? <label className="filter-control compact-control">Technician<select value={selectedTechnicianId} onChange={(event) => setSelectedTechnicianId(event.target.value)}>{technicians.map((tech) => <option value={tech.id} key={tech.id}>{tech.name}</option>)}</select></label> : undefined}
@@ -831,7 +841,7 @@ function CustomerView({ state, approveEstimate, pushToast }: DeskActions & { pus
     <ModuleFrame
       title="Realtime repair progress"
       subtitle="A customer-facing report and detail view for tracking repair status, estimates, and updates."
-      views={[{ id: 'progress', label: 'My repairs' }]}
+      views={[{ id: 'progress', label: 'My repairs', group: 'My repairs' }]}
       activeView="progress"
       onViewChange={() => undefined}
       toolbar={<label className="filter-control compact-control">Customer<select value={selectedCustomerId} onChange={(event) => setSelectedCustomerId(event.target.value)}>{state.customers.map((customer) => <option value={customer.id} key={customer.id}>{customer.name}</option>)}</select></label>}
@@ -1261,16 +1271,73 @@ function exportInvoicesCsvLocally(invoices: Invoice[]) {
   );
 }
 
-function ModuleFrame({ title, subtitle, views, activeView, onViewChange, toolbar, children }: { title: string; subtitle: string; views: Array<{ id: string; label: string }>; activeView: string; onViewChange: (view: string) => void; toolbar?: ReactNode; children: ReactNode }) {
+interface ViewDef {
+  id: string;
+  label: string;
+  group: string;
+}
+
+function ModuleFrame({
+  title,
+  subtitle,
+  views,
+  activeView,
+  onViewChange,
+  toolbar,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  views: ViewDef[];
+  activeView: string;
+  onViewChange: (view: string) => void;
+  toolbar?: ReactNode;
+  children: ReactNode;
+}) {
+  const groups = useMemo(() => {
+    const order: string[] = [];
+    const byGroup = new Map<string, ViewDef[]>();
+    for (const view of views) {
+      if (!byGroup.has(view.group)) {
+        order.push(view.group);
+        byGroup.set(view.group, []);
+      }
+      byGroup.get(view.group)?.push(view);
+    }
+    return order.map((name) => ({ name, items: byGroup.get(name) ?? [] }));
+  }, [views]);
+
+  const activeGroup = groups.find((group) => group.items.some((item) => item.id === activeView)) ?? groups[0];
+
   return (
     <section className="module-frame">
       <div className="module-header">
-        <div><p className="eyebrow">Module</p><h2>{title}</h2><p>{subtitle}</p></div>
+        <div><p className="eyebrow">Module</p><h2>{title}</h2><p className="module-subtitle">{subtitle}</p></div>
         {toolbar}
       </div>
-      <div className="view-tabs" aria-label="Views">
-        {views.map((view) => <button type="button" key={view.id} className={activeView === view.id ? 'view-tab active' : 'view-tab'} onClick={() => onViewChange(view.id)}>{view.label}</button>)}
-      </div>
+      {groups.length > 1 && (
+        <nav className="view-tabs view-tabs-primary" aria-label="Sections">
+          {groups.map((group) => (
+            <button
+              type="button"
+              key={group.name}
+              className={group === activeGroup ? 'view-tab active' : 'view-tab'}
+              onClick={() => onViewChange(group.items[0].id)}
+            >
+              {group.name}
+            </button>
+          ))}
+        </nav>
+      )}
+      {activeGroup && activeGroup.items.length > 1 && (
+        <nav className="view-tabs view-tabs-secondary" aria-label={`${activeGroup.name} views`}>
+          {activeGroup.items.map((view) => (
+            <button type="button" key={view.id} className={activeView === view.id ? 'view-tab active' : 'view-tab'} onClick={() => onViewChange(view.id)}>
+              {view.label}
+            </button>
+          ))}
+        </nav>
+      )}
       <div className="view-canvas">{children}</div>
     </section>
   );
@@ -1352,7 +1419,7 @@ function ThemeToggle({ theme, onToggle }: { theme: ThemeMode; onToggle: () => vo
   return (
     <button className="theme-toggle" type="button" onClick={onToggle} aria-label={`Switch to ${nextTheme} mode`}>
       <span aria-hidden="true">{theme === 'light' ? '🌙' : '☀️'}</span>
-      {theme === 'light' ? 'Dark' : 'Light'} mode
+      <span className="toggle-label">{theme === 'light' ? 'Dark' : 'Light'} mode</span>
     </button>
   );
 }
