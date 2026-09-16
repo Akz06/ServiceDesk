@@ -359,7 +359,7 @@ export async function createWorkItem(draft: WorkItemDraft): Promise<ServiceDeskS
     priority: draft.priority,
     status: 'Assigned',
     assignedTechnicianId: draft.assignedTechnicianId,
-    analysis: 'Technician analysis pending.',
+    analysis: '',
     requiredChanges: 'Pending diagnosis.',
     estimatedPrice: 0,
     laborEstimate: 0,

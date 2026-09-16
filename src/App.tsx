@@ -164,7 +164,7 @@ function App() {
     return <HomePage auth={auth} theme={theme} onThemeToggle={toggleTheme} onLoginSuccess={handleLoginSuccess} />;
   }
 
-  return <Workspace sessionId={sessionId} user={auth.user} activeModule={activeModule} theme={theme} onThemeToggle={toggleTheme} onModuleChange={handleModuleChange} onLogout={handleLogout} />;
+  return <Workspace user={auth.user} activeModule={activeModule} theme={theme} onThemeToggle={toggleTheme} onModuleChange={handleModuleChange} onLogout={handleLogout} />;
 }
 
 function HomePage({
@@ -209,8 +209,8 @@ function HomePage({
           <p className="eyebrow">Full-stack repair ERP</p>
           <h1>Repair shop operations, built like a real business app.</h1>
           <p>
-            {appName} is a PostgreSQL-backed full-stack application for managing repair requests,
-            technicians, estimates, inventory, customer progress, users, invoices, and reports.
+            {appName} manages repair requests, technicians, estimates, inventory, customer progress,
+            staff accounts, invoices, and reports — all in one place, running on your own server.
           </p>
           <div className="hero-actions">
             <a className="primary-link" href="#login">Open application</a>
@@ -229,7 +229,7 @@ function HomePage({
         <aside className="login-panel" id="login" aria-label="Login panel">
           <p className="eyebrow">Secure workspace</p>
           <h2>Login to your module</h2>
-          <p className="muted">Production login uses PostgreSQL users and server sessions. Demo users are seeded automatically.</p>
+          <p className="muted">Secure login with staff accounts and sessions. Demo accounts are ready to try below.</p>
           <form className="login-form" onSubmit={(event) => void submit(event)}>
             <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
             <label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={8} /></label>
@@ -248,11 +248,11 @@ function HomePage({
       </section>
 
       <section className="feature-band" id="features">
-        <Feature title="Creator-like app shell" body="Modules, reports, forms, record lists, and detail panels instead of a single dashboard." />
+        <Feature title="Organized like a real business app" body="Modules, reports, forms, record lists, and detail panels instead of a single dashboard." />
         <Feature title="Role-based access" body="Admin sees every module; Agent, Technician, and Customer see only their permitted workspace." />
-        <Feature title="Full-stack persistence" body="Express APIs persist users, sessions, work items, invoices, inventory, and customer data in PostgreSQL." />
-        <Feature title="Railway ready" body="Single deployable service serving the API and the built React application." />
-        <Feature title="You own your data" body="Self-hosted on your own PostgreSQL database — no forced vendor migration and no lock-in to switch away from." />
+        <Feature title="Everything in one place" body="Customers, work items, invoices, inventory, and staff accounts stay in sync automatically." />
+        <Feature title="Deploy anywhere" body="Runs as a single service you can host wherever you like." />
+        <Feature title="You own your data" body="Self-hosted on your own database — no forced vendor migration and no lock-in to switch away from." />
         <Feature title="No surprise price hikes" body="Priced by your own infrastructure cost, not a per-seat subscription that can double overnight." />
       </section>
     </main>
@@ -260,7 +260,6 @@ function HomePage({
 }
 
 function Workspace({
-  sessionId,
   user,
   activeModule,
   theme,
@@ -268,7 +267,6 @@ function Workspace({
   onModuleChange,
   onLogout,
 }: {
-  sessionId: string;
   user: AuthUser;
   activeModule: ModuleId;
   theme: ThemeMode;
@@ -308,11 +306,6 @@ function Workspace({
             </button>
           ))}
         </div>
-        <div className="sidebar-card">
-          <strong>{serviceDesk.isApiBacked ? 'PostgreSQL API' : 'Local demo'}</strong>
-          <span>{serviceDesk.isLoading ? 'Syncing records…' : 'Records ready'}</span>
-          {serviceDesk.error && <small className="sync-error">{serviceDesk.error}</small>}
-        </div>
       </aside>
 
       <section className="creator-main">
@@ -335,7 +328,7 @@ function Workspace({
           </div>
           <div className="user-menu">
             <span>{user.name}</span>
-            <small>{user.role} · Session {sessionId.slice(0, 8)}</small>
+            <small>{user.role}</small>
             <div className="topbar-actions"><ThemeToggle theme={theme} onToggle={onThemeToggle} /><button type="button" className="secondary-button" onClick={() => void onLogout()}>Logout</button></div>
           </div>
         </header>
@@ -539,7 +532,13 @@ function AdminView(props: DeskActions & { currentUser: AuthUser; pushToast: (mes
 
       {activeView === 'customers' && (
         <>
-          <div className="card-actions"><button type="button" className="secondary-dark-button" onClick={() => void exportApi.customersCsv()}>Export CSV</button></div>
+          <div className="card-actions"><button type="button" className="secondary-dark-button" onClick={() => {
+            if (isApiPersistenceEnabled) {
+              void exportApi.customersCsv().catch((error: unknown) => pushToast(error instanceof Error ? error.message : 'Export failed.', 'error'));
+              return;
+            }
+            exportCustomersCsvLocally(state);
+          }}>Export CSV</button></div>
           <RecordTable title="Customer master" rows={state.customers.map((customer) => ({ id: customer.id, primary: customer.name, secondary: `${customer.phone} · ${customer.email}`, meta: `${state.workItems.filter((item) => item.customerId === customer.id).length} repairs` }))} />
         </>
       )}
@@ -563,7 +562,7 @@ function AdminView(props: DeskActions & { currentUser: AuthUser; pushToast: (mes
               <button className="primary-button" type="submit">Issue invoice</button>
             </form>
           </CreatorFormCard>
-          <InvoiceList invoices={state.invoices} updateInvoiceStatus={changeInvoiceStatus} recordPayment={submitPayment} />
+          <InvoiceList invoices={state.invoices} updateInvoiceStatus={changeInvoiceStatus} recordPayment={submitPayment} pushToast={pushToast} />
         </CreatorSplit>
       )}
 
@@ -984,14 +983,24 @@ function InvoiceList({
   invoices,
   updateInvoiceStatus,
   recordPayment,
+  pushToast,
 }: {
   invoices: Invoice[];
   updateInvoiceStatus: DeskActions['updateInvoiceStatus'];
   recordPayment: (invoiceId: string, payment: InvoicePaymentDraft) => void;
+  pushToast: (message: ReactNode, tone?: ToastTone) => void;
 }) {
+  const exportCsv = () => {
+    if (isApiPersistenceEnabled) {
+      exportApi.invoicesCsv().catch((error: unknown) => pushToast(error instanceof Error ? error.message : 'Export failed.', 'error'));
+      return;
+    }
+    exportInvoicesCsvLocally(invoices);
+  };
+
   return (
     <div className="creator-list-panel">
-      <div className="list-header"><h3>Invoice register</h3><div className="card-actions"><span>{invoices.length} records</span><button type="button" className="secondary-dark-button" onClick={() => void exportApi.invoicesCsv()}>Export CSV</button></div></div>
+      <div className="list-header"><h3>Invoice register</h3><div className="card-actions"><span>{invoices.length} records</span><button type="button" className="secondary-dark-button" onClick={exportCsv}>Export CSV</button></div></div>
       {invoices.map((invoice) => (
         <InvoiceRow key={invoice.id} invoice={invoice} updateInvoiceStatus={updateInvoiceStatus} recordPayment={recordPayment} />
       ))}
@@ -1217,6 +1226,41 @@ function downloadRowsAsCsv(filename: string, headers: string[], rows: Array<Reco
   URL.revokeObjectURL(url);
 }
 
+function exportCustomersCsvLocally(state: DeskActions['state']) {
+  downloadRowsAsCsv(
+    'customers.csv',
+    ['Customer ID', 'Name', 'Phone', 'Email', 'Repairs'],
+    state.customers.map((customer) => ({
+      'Customer ID': customer.id,
+      Name: customer.name,
+      Phone: customer.phone,
+      Email: customer.email,
+      Repairs: String(state.workItems.filter((item) => item.customerId === customer.id).length),
+    })),
+  );
+}
+
+function exportInvoicesCsvLocally(invoices: Invoice[]) {
+  downloadRowsAsCsv(
+    'invoices.csv',
+    ['Invoice ID', 'Work Item', 'Customer', 'Labor', 'Parts', 'Diagnostic Fee', 'Total', 'Status', 'Issued At', 'Paid At', 'Payment Method', 'Payment Reference'],
+    invoices.map((invoice) => ({
+      'Invoice ID': invoice.id,
+      'Work Item': invoice.workItemId,
+      Customer: invoice.customerName,
+      Labor: String(invoice.laborAmount),
+      Parts: String(invoice.partsAmount),
+      'Diagnostic Fee': String(invoice.diagnosticFee),
+      Total: String(invoice.amount),
+      Status: invoice.status,
+      'Issued At': invoice.issuedAt,
+      'Paid At': invoice.paidAt,
+      'Payment Method': invoice.paymentMethod,
+      'Payment Reference': invoice.paymentReference,
+    })),
+  );
+}
+
 function ModuleFrame({ title, subtitle, views, activeView, onViewChange, toolbar, children }: { title: string; subtitle: string; views: Array<{ id: string; label: string }>; activeView: string; onViewChange: (view: string) => void; toolbar?: ReactNode; children: ReactNode }) {
   return (
     <section className="module-frame">
@@ -1326,12 +1370,20 @@ function SyncStatus({
   error: string | null;
   onRefresh: () => Promise<void>;
 }) {
+  if (!error && !isLoading && isApiBacked) {
+    return null;
+  }
+
   return (
-    <section className="sync-banner" aria-live="polite">
-      <span>{isApiBacked ? 'PostgreSQL API persistence enabled' : 'Local demo persistence enabled'}</span>
-      {isLoading && <strong>Loading latest data…</strong>}
-      {error && <strong className="sync-error">{error}</strong>}
-      {isApiBacked && <button type="button" className="secondary-dark-button" onClick={() => void onRefresh()}>Refresh</button>}
+    <section className={error ? 'sync-banner sync-banner-error' : 'sync-banner'} aria-live="polite">
+      {error ? (
+        <strong className="sync-error">{error}</strong>
+      ) : isLoading ? (
+        <span>Loading your data…</span>
+      ) : (
+        <span>Working offline — changes are only saved on this device.</span>
+      )}
+      {error && <button type="button" className="secondary-dark-button" onClick={() => void onRefresh()}>Try again</button>}
     </section>
   );
 }

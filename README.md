@@ -74,6 +74,16 @@ These were identified in the same competitive review but need either a real thir
 
 `GET /api/state` currently returns the full dataset (all customers, all work items, all invoices) to any authenticated user — the Customer module only *displays* the signed-in customer's own records client-side rather than the server scoping the query. There is also no link yet between a `customer`-profile user account and a specific `customers` row (the customer picker in the Customer module is still a manual selector, as already called out above under "Customer-specific login binding"). Both are worth a dedicated security pass before onboarding real customer data.
 
+## End-User Readiness Pass
+
+A full pass across every role and module (Admin/Agent/Technician/Customer), driven live in a browser rather than just typechecked, turned up issues that made the app feel like an internal dev tool rather than a product a shop owner would trust:
+
+- **Removed backend/implementation jargon from the logged-in workspace.** The sidebar no longer shows "PostgreSQL API" / "Local demo", the topbar no longer shows a raw session ID, and the sync banner only appears when there's something the user actually needs to know (a real error, or "you're working offline and changes are only saved on this device") instead of announcing its persistence mode at all times.
+- **Fixed raw/technical error messages leaking into the UI.** Every API failure used to surface as `ServiceDesk API request failed (400): {"error":"..."}` in toasts and banners. `src/services/apiClient.ts` now parses the server's JSON error and shows just the human message, with sane fallbacks for network failures, 401s, and 403s.
+- **Fixed a real bug: CSV export silently downloaded the wrong file in local demo mode.** `npm run dev` has no Express backend, so hitting `/api/export/*.csv` was falling through to Vite's SPA fallback and downloading `index.html` renamed to `.csv` — with no error shown. Export now branches the same way every other action does: a real API call when a backend is connected, and an equivalent client-side CSV built from already-loaded state when running in local demo mode.
+- **Fixed a real bug: the "no diagnosis, no closing a ticket" rule was a no-op.** New work items defaulted `analysis` to the placeholder string `"Technician analysis pending."`, which is non-empty — so the enforcement check (which only blocks a truly empty analysis) never actually fired. The default is now an empty string, with the existing "Pending technician analysis" fallback text still shown wherever it's displayed.
+- Softened homepage marketing copy that read like a backend README ("PostgreSQL-backed full-stack application", "Express APIs... PostgreSQL") into plain business language.
+
 ## App Experience
 
 ### Public homepage

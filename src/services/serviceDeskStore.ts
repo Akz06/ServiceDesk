@@ -114,7 +114,7 @@ export const createWorkItemRecord = (state: ServiceDeskState, draft: WorkItemDra
     priority: draft.priority,
     status: 'Assigned',
     assignedTechnicianId: draft.assignedTechnicianId,
-    analysis: 'Technician analysis pending.',
+    analysis: '',
     requiredChanges: 'Pending diagnosis.',
     estimatedPrice: 0,
     laborEstimate: 0,

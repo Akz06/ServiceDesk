@@ -41,20 +41,48 @@ export function clearAuthSession() {
   localStorage.removeItem(AUTH_USER_KEY);
 }
 
+async function friendlyErrorMessage(response: Response): Promise<string> {
+  const details = await response.text();
+
+  try {
+    const parsed = JSON.parse(details) as { error?: string };
+    if (parsed.error) {
+      return parsed.error;
+    }
+  } catch {
+    // Response body wasn't JSON — fall through to the generic message below.
+  }
+
+  if (response.status === 401) {
+    return 'Your session has expired. Please log in again.';
+  }
+
+  if (response.status === 403) {
+    return "You don't have permission to do that.";
+  }
+
+  return 'Something went wrong. Please try again.';
+}
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getStoredAuthToken();
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...init?.headers,
-    },
-  });
+  let response: Response;
+
+  try {
+    response = await fetch(`${apiBaseUrl}${path}`, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...init?.headers,
+      },
+    });
+  } catch {
+    throw new Error('Unable to reach the server. Check your internet connection and try again.');
+  }
 
   if (!response.ok) {
-    const details = await response.text();
-    throw new Error(`ServiceDesk API request failed (${response.status}): ${details}`);
+    throw new Error(await friendlyErrorMessage(response));
   }
 
   return response.json() as Promise<T>;
@@ -98,12 +126,18 @@ export const serviceDeskApi = {
 
 async function downloadFile(path: string, filename: string) {
   const token = getStoredAuthToken();
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+  let response: Response;
+
+  try {
+    response = await fetch(`${apiBaseUrl}${path}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+  } catch {
+    throw new Error('Unable to reach the server. Check your internet connection and try again.');
+  }
 
   if (!response.ok) {
-    throw new Error(`Export failed (${response.status}): ${await response.text()}`);
+    throw new Error(await friendlyErrorMessage(response));
   }
 
   const blob = await response.blob();

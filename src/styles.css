@@ -173,6 +173,7 @@ textarea { min-height: 90px; resize: vertical; line-height: 1.5; }
 .user-menu span { font-weight: 850; color: var(--text-strong); }
 .user-menu small { color: var(--muted); }
 .sync-banner { align-items: center; background: var(--info-bg); border: 1px solid var(--info-border); border-radius: 15px; color: var(--info-text); display: flex; gap: 1rem; justify-content: space-between; margin: 14px 0; padding: .78rem .95rem; font-size: var(--font-sm); }
+.sync-banner-error { background: var(--danger-bg); border-color: var(--danger-text); color: var(--danger-text); }
 .sync-error { color: var(--danger-text); }
 
 .creator-kpi-row, .creator-report-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 13px; margin: 14px 0; }
