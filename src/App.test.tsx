@@ -37,8 +37,11 @@ describe('App workflow', () => {
   it('logs into agent module and creates a work item', async () => {
     const user = await loginAs('agent@servicedesk.local', 'Agent@12345');
 
-    expect(screen.getByRole('heading', { name: /create a work item/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /technician module/i })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /^work items$/i }));
+    await user.click(screen.getByRole('button', { name: /\+ new work item/i }));
+    expect(screen.getByRole('heading', { name: /create a work item/i })).toBeInTheDocument();
 
     await user.type(screen.getByLabelText(/customer name/i), 'Asha Rao');
     await user.type(screen.getByLabelText(/^phone/i), '+1 555 0444');
@@ -63,6 +66,8 @@ describe('App workflow', () => {
 
   it('lets technician update repair status', async () => {
     const user = await loginAs('tech@servicedesk.local', 'Tech@12345');
+
+    await user.click(screen.getByRole('button', { name: /my jobs/i }));
 
     const card = screen.getByText('Dell XPS 13').closest('.ticket-card');
     expect(card).not.toBeNull();

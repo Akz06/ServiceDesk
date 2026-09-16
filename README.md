@@ -100,12 +100,12 @@ The homepage explains the product before login:
 
 After login, users enter an app shell similar to a low-code business app:
 
-- Left sidebar with the Repair ERP application and allowed modules
-- Topbar with current module, profile, and session
-- View tabs inside each module
+- Left sidebar with a role switcher (Modules) and, below it, that role's own nested section list
+- Topbar with a compact breadcrumb, theme toggle, and logout
+- A dashboard KPI summary that only appears on each role's Dashboard section, not smeared across every page
 - Forms on the left and reports/record details on the right
 - Master-data reports and filtered views
-- Responsive mobile/tablet layout
+- Responsive layout tuned for phone, tablet, and desktop widths
 
 ## Modules
 
@@ -118,70 +118,64 @@ After login, users enter an app shell similar to a low-code business app:
 
 ### Admin module
 
-Creator-style views:
+Sidebar sections:
 
-- Overview
-- Users
-- Customers
-- Technicians
+- Dashboard
+- People — Users, Customers, Technicians
+- Inventory
+- Work Items — All Work Items, Board, Walk-ins
 - Invoices
+- Catalog
+- Notifications
+- Export Reports
 
 Capabilities:
 
-- User management
-- Create users with profile assignment
-- Activate/deactivate users
-- Business metrics
-- Customer master report
-- Technician master report
-- Invoice creation
-- Invoice status updates: Draft, Issued, Paid, Void
+- User management: create users with profile assignment, activate/deactivate
+- Customer and technician master reports
+- Full work-item management (the same create/assign/board/walk-ins/cancel/notify capability Agent has) directly from Admin, with no need to switch roles
+- Invoice creation with itemized labor/parts/diagnostic-fee breakdown, payment recording, and CSV export
 - Inventory management and demo data reset
+- Outbound notification log (mock SMS/email — see Growth Modules below)
+- Build-your-own report builder with saved reports and CSV export
 
 ### Agent module
 
-Creator-style views:
+Sidebar sections:
 
-- New request
-- All work items
-- Walk-ins
+- Dashboard
+- Work Items — All Work Items, Board, Walk-ins
+- Inventory
 
 Capabilities:
 
-- Create online or walk-in repair work items
-- Capture customer/device details
-- Assign/reassign technicians
-- Search and cancel work items
-- Open a record detail panel from the list view
+- Create online or walk-in repair work items (a "+ New work item" action inside Work Items, not a separate tab)
+- Capture customer/device details, assign/reassign technicians
+- Kanban board view of all work items by status, with one-click "advance to next status"
+- Search and cancel work items; manually notify a customer
 - Manage spare-parts inventory
 
 ### Technician module
 
-Creator-style views:
+Sidebar sections:
 
-- Assigned jobs
-- Estimates
-- In repair
+- Dashboard
+- My Jobs — Assigned, Estimates, In Repair
+- Parts
 
 Capabilities:
 
-- View assigned repair jobs
+- View assigned repair jobs, filtered by technician
 - Add diagnosis and required changes
-- Share estimate price
-- Update promised time and repair status
+- Itemized labor/parts/diagnostic-fee estimate breakdown
+- Update promised time and repair status (blocked from Ready for Pickup/Delivered without a diagnosis note on file)
 - Consume spare parts from inventory
 
 ### Customer module
 
-Creator-style views:
-
-- My repairs
-
 Capabilities:
 
-- View repair progress
-- Select repair record
-- See update timeline
+- View repair progress, select a repair record, see the update timeline and outbound notifications sent about it
 - Approve shared estimates
 
 ## Demo Login Users

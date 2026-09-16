@@ -106,6 +106,56 @@ const moduleIcons: Record<ModuleId, string> = {
   customer: '📱',
 };
 
+interface NavItem {
+  id: string;
+  label: string;
+  children?: NavItem[];
+}
+
+const navConfigs: Record<ModuleId, NavItem[]> = {
+  admin: [
+    { id: 'dashboard', label: 'Dashboard' },
+    { id: 'people', label: 'People', children: [
+      { id: 'users', label: 'Users' },
+      { id: 'customers', label: 'Customers' },
+      { id: 'technicians', label: 'Technicians' },
+    ] },
+    { id: 'inventory', label: 'Inventory' },
+    { id: 'workitems', label: 'Work Items', children: [
+      { id: 'wi-all', label: 'All Work Items' },
+      { id: 'wi-board', label: 'Board' },
+      { id: 'wi-walkins', label: 'Walk-ins' },
+    ] },
+    { id: 'invoices', label: 'Invoices' },
+    { id: 'catalog', label: 'Catalog' },
+    { id: 'notifications', label: 'Notifications' },
+    { id: 'reports', label: 'Export Reports' },
+  ],
+  agent: [
+    { id: 'dashboard', label: 'Dashboard' },
+    { id: 'workitems', label: 'Work Items', children: [
+      { id: 'queue', label: 'All Work Items' },
+      { id: 'board', label: 'Board' },
+      { id: 'walkins', label: 'Walk-ins' },
+    ] },
+    { id: 'inventory', label: 'Inventory' },
+  ],
+  technician: [
+    { id: 'dashboard', label: 'Dashboard' },
+    { id: 'myjobs', label: 'My Jobs', children: [
+      { id: 'assigned', label: 'Assigned' },
+      { id: 'estimates', label: 'Estimates' },
+      { id: 'repair', label: 'In Repair' },
+    ] },
+    { id: 'parts', label: 'Parts' },
+  ],
+  customer: [
+    { id: 'repairs', label: 'My Repairs' },
+  ],
+};
+
+const firstLeafId = (items: NavItem[]): string => (items[0].children ? firstLeafId(items[0].children) : items[0].id);
+
 type ThemeMode = 'light' | 'dark';
 
 const getInitialTheme = (): ThemeMode => {
@@ -281,21 +331,32 @@ function Workspace({
   const toast = useToast();
 
   const activeLabel = moduleLabels[activeModule];
+  const navItems = navConfigs[activeModule];
+  const [activeView, setActiveView] = useState<string>(() => firstLeafId(navItems));
+  const [lastModule, setLastModule] = useState(activeModule);
+
+  if (lastModule !== activeModule) {
+    setLastModule(activeModule);
+    setActiveView(firstLeafId(navItems));
+  }
 
   const changeModule = (moduleId: ModuleId) => {
     onModuleChange(moduleId);
     setMobileNavOpen(false);
   };
 
+  const navigate = (id: string) => {
+    setActiveView(id);
+    setMobileNavOpen(false);
+  };
+
+  const isDashboard = activeView === 'dashboard';
+
   return (
     <main className="creator-shell">
       {mobileNavOpen && <div className="nav-overlay" onClick={() => setMobileNavOpen(false)} aria-hidden="true" />}
       <aside className={mobileNavOpen ? 'creator-sidebar nav-open' : 'creator-sidebar'}>
         <div className="brand app-brand"><div className="brand-mark">SD</div><span>{appName}</span></div>
-        <div className="sidebar-section">
-          <span className="sidebar-label">Applications</span>
-          <button className="app-selector active" type="button"><span>🧩</span> Repair ERP</button>
-        </div>
         <div className="sidebar-section">
           <span className="sidebar-label">Modules</span>
           {user.moduleAccess.map((moduleId) => (
@@ -305,6 +366,12 @@ function Workspace({
             </button>
           ))}
         </div>
+        {navItems.length > 1 && (
+          <div className="sidebar-section">
+            <span className="sidebar-label">{activeLabel} sections</span>
+            <SidebarNav items={navItems} activeView={activeView} onNavigate={navigate} />
+          </div>
+        )}
       </aside>
 
       <section className="creator-main">
@@ -330,7 +397,7 @@ function Workspace({
 
         <SyncStatus isApiBacked={serviceDesk.isApiBacked} isLoading={serviceDesk.isLoading} error={serviceDesk.error} onRefresh={serviceDesk.refresh} />
 
-        {activeModule !== 'customer' && (
+        {activeModule !== 'customer' && isDashboard && (
           <section className="creator-kpi-row" aria-label="Operational metrics">
             <MetricCard label="Active WIs" value={String(metrics.activeWorkItems)} helper="Open repair jobs" />
             <MetricCard label="Awaiting approval" value={String(metrics.awaitingApproval)} helper="Estimate decisions" />
@@ -340,12 +407,13 @@ function Workspace({
         )}
 
         <section className="creator-page">
-          {activeModule === 'admin' && <AdminView {...serviceDesk} currentUser={user} pushToast={toast.push} />}
-          {activeModule === 'agent' && <AgentView {...serviceDesk} pushToast={toast.push} />}
+          {activeModule === 'admin' && <AdminView {...serviceDesk} currentUser={user} activeView={activeView} pushToast={toast.push} />}
+          {activeModule === 'agent' && <AgentView {...serviceDesk} activeView={activeView} pushToast={toast.push} />}
           {activeModule === 'technician' && (
             <TechnicianView
               selectedTechnicianId={selectedTechnicianId}
               setSelectedTechnicianId={setSelectedTechnicianId}
+              activeView={activeView}
               pushToast={toast.push}
               {...serviceDesk}
             />
@@ -358,6 +426,36 @@ function Workspace({
   );
 }
 
+function SidebarNav({ items, activeView, onNavigate }: { items: NavItem[]; activeView: string; onNavigate: (id: string) => void }) {
+  return (
+    <>
+      {items.map((item) => {
+        const isParentActive = item.id === activeView || (item.children?.some((child) => child.id === activeView) ?? false);
+        return (
+          <div className="sidebar-nav-group" key={item.id}>
+            <button
+              type="button"
+              className={isParentActive ? 'nav-item active' : 'nav-item'}
+              onClick={() => onNavigate(item.children ? item.children[0].id : item.id)}
+            >
+              {item.label}
+            </button>
+            {item.children && isParentActive && (
+              <div className="sidebar-subnav">
+                {item.children.map((child) => (
+                  <button type="button" key={child.id} className={child.id === activeView ? 'nav-subitem active' : 'nav-subitem'} onClick={() => onNavigate(child.id)}>
+                    {child.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 const blankInvoiceDraft = (item?: WorkItem): InvoiceDraft => ({
   workItemId: item?.id ?? '',
   amount: item?.estimatedPrice ?? 0,
@@ -367,8 +465,8 @@ const blankInvoiceDraft = (item?: WorkItem): InvoiceDraft => ({
   notes: '',
 });
 
-function AdminView(props: DeskActions & { currentUser: AuthUser; pushToast: (message: ReactNode, tone?: ToastTone) => void }) {
-  const { state, createInvoice, updateInvoiceStatus, recordInvoicePayment, createSavedReport, deleteSavedReport, currentUser, pushToast } = props;
+function AdminView(props: DeskActions & { currentUser: AuthUser; activeView: string; pushToast: (message: ReactNode, tone?: ToastTone) => void }) {
+  const { state, createInvoice, updateInvoiceStatus, recordInvoicePayment, createSavedReport, deleteSavedReport, createWorkItem, updateWorkItem, cancelWorkItem, notifyCustomerNow, currentUser, activeView, pushToast } = props;
   const metrics = getMetrics(state);
   const localDemoManagedUsers: ManagedUser[] = [
     { ...currentUser, active: true, createdAt: 'Local demo' },
@@ -376,7 +474,6 @@ function AdminView(props: DeskActions & { currentUser: AuthUser; pushToast: (mes
     { id: 'user-technician', name: 'Technician User', email: 'tech@servicedesk.local', role: 'Technician', profile: 'technician', moduleAccess: ['technician'], active: true, createdAt: 'Local demo' },
     { id: 'user-customer', name: 'Customer User', email: 'customer@servicedesk.local', role: 'Customer', profile: 'customer', moduleAccess: ['customer'], active: true, createdAt: 'Local demo' },
   ];
-  const [activeView, setActiveView] = useState<'overview' | 'users' | 'customers' | 'technicians' | 'invoices' | 'catalog' | 'inventory' | 'notifications' | 'reports'>('overview');
   const [users, setUsers] = useState<ManagedUser[]>(() => (isApiPersistenceEnabled ? [] : localDemoManagedUsers));
   const [userDraft, setUserDraft] = useState<UserDraft>(blankUser);
   const [userError, setUserError] = useState<string | null>(null);
@@ -466,24 +563,8 @@ function AdminView(props: DeskActions & { currentUser: AuthUser; pushToast: (mes
   };
 
   return (
-    <ModuleFrame
-      title="Admin control center"
-      subtitle="Creator-style reports and forms for user administration, master data, billing, and business monitoring."
-      views={[
-        { id: 'overview', label: 'Overview', group: 'Overview' },
-        { id: 'users', label: 'Users', group: 'People' },
-        { id: 'customers', label: 'Customers', group: 'People' },
-        { id: 'technicians', label: 'Technicians', group: 'People' },
-        { id: 'inventory', label: 'Inventory', group: 'Operations' },
-        { id: 'catalog', label: 'Catalog', group: 'Operations' },
-        { id: 'invoices', label: 'Invoices', group: 'Billing' },
-        { id: 'reports', label: 'Reports', group: 'Insights' },
-        { id: 'notifications', label: 'Notifications', group: 'Insights' },
-      ]}
-      activeView={activeView}
-      onViewChange={(view) => setActiveView(view as typeof activeView)}
-    >
-      {activeView === 'overview' && (
+    <ModuleFrame title="Admin control center" subtitle="Creator-style reports and forms for user administration, master data, billing, and business monitoring.">
+      {activeView === 'dashboard' && (
         <div className="creator-page">
           <div className="creator-report-grid">
             <MetricCard label="Customers" value={String(state.customers.length)} helper="Customer master records" />
@@ -567,6 +648,21 @@ function AdminView(props: DeskActions & { currentUser: AuthUser; pushToast: (mes
 
       {activeView === 'inventory' && <InventoryView {...props} canManage canReset pushToast={pushToast} />}
 
+      {activeView === 'wi-board' && <KanbanBoard workItems={state.workItems} updateWorkItem={updateWorkItem} pushToast={pushToast} />}
+
+      {(activeView === 'wi-all' || activeView === 'wi-walkins') && (
+        <WorkItemsSection
+          subView={activeView === 'wi-walkins' ? 'walkins' : 'all'}
+          actorRole="Admin"
+          state={state}
+          createWorkItem={createWorkItem}
+          updateWorkItem={updateWorkItem}
+          cancelWorkItem={cancelWorkItem}
+          notifyCustomerNow={notifyCustomerNow}
+          pushToast={pushToast}
+        />
+      )}
+
       {activeView === 'catalog' && (
         <ServiceCatalog selectedDeviceType={selectedDeviceType} setSelectedDeviceType={setSelectedDeviceType} visibleCategories={visibleCategories} />
       )}
@@ -586,9 +682,61 @@ function AdminView(props: DeskActions & { currentUser: AuthUser; pushToast: (mes
   );
 }
 
-function AgentView(props: DeskActions & { pushToast: (message: ReactNode, tone?: ToastTone) => void }) {
-  const { state, createWorkItem, updateWorkItem, cancelWorkItem, notifyCustomerNow, pushToast } = props;
-  const [activeView, setActiveView] = useState<'new' | 'queue' | 'board' | 'walkins' | 'inventory'>('new');
+function AgentView(props: DeskActions & { activeView: string; pushToast: (message: ReactNode, tone?: ToastTone) => void }) {
+  const { state, updateWorkItem, cancelWorkItem, createWorkItem, notifyCustomerNow, activeView, pushToast } = props;
+
+  return (
+    <ModuleFrame title="Agent desk" subtitle="Create customer requests and manage the repair queue using form and report views.">
+      {activeView === 'dashboard' && (
+        <div className="creator-record-grid">
+          <RecordTable
+            title="Recent work items"
+            rows={state.workItems.slice(0, 6).map((item) => ({ id: item.id, primary: item.deviceModel, secondary: `${item.customerName} · ${item.status}`, meta: currencyFormatter.format(item.estimatedPrice) }))}
+          />
+          <RecordTable
+            title="Low stock alerts"
+            rows={state.inventoryParts.filter((part) => part.quantity <= part.reorderLevel).map((part) => ({ id: part.sku, primary: part.name, secondary: `${part.quantity} available · reorder at ${part.reorderLevel}`, meta: currencyFormatter.format(part.unitCost) }))}
+          />
+        </div>
+      )}
+      {activeView === 'inventory' && <InventoryView {...props} canManage canReset={false} />}
+      {activeView === 'board' && <KanbanBoard workItems={state.workItems} updateWorkItem={updateWorkItem} pushToast={pushToast} />}
+      {(activeView === 'queue' || activeView === 'walkins') && (
+        <WorkItemsSection
+          subView={activeView === 'walkins' ? 'walkins' : 'all'}
+          actorRole="Agent"
+          state={state}
+          createWorkItem={createWorkItem}
+          updateWorkItem={updateWorkItem}
+          cancelWorkItem={cancelWorkItem}
+          notifyCustomerNow={notifyCustomerNow}
+          pushToast={pushToast}
+        />
+      )}
+    </ModuleFrame>
+  );
+}
+
+function WorkItemsSection({
+  subView,
+  actorRole,
+  state,
+  createWorkItem,
+  updateWorkItem,
+  cancelWorkItem,
+  notifyCustomerNow,
+  pushToast,
+}: {
+  subView: 'all' | 'walkins';
+  actorRole: UserRole;
+  state: DeskActions['state'];
+  createWorkItem: DeskActions['createWorkItem'];
+  updateWorkItem: DeskActions['updateWorkItem'];
+  cancelWorkItem: DeskActions['cancelWorkItem'];
+  notifyCustomerNow: DeskActions['notifyCustomerNow'];
+  pushToast: (message: ReactNode, tone?: ToastTone) => void;
+}) {
+  const [showCreateForm, setShowCreateForm] = useState(false);
   const [draft, setDraft] = useState<WorkItemDraft>(blankDraft);
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState(state.workItems[0]?.id ?? '');
@@ -596,8 +744,7 @@ function AgentView(props: DeskActions & { pushToast: (message: ReactNode, tone?:
   const filtered = state.workItems.filter((item) =>
     `${item.id} ${item.customerName} ${item.deviceModel} ${item.status}`.toLowerCase().includes(query.toLowerCase()),
   );
-  const walkIns = filtered.filter((item) => item.source === 'Walk-in');
-  const list = activeView === 'walkins' ? walkIns : filtered;
+  const list = subView === 'walkins' ? filtered.filter((item) => item.source === 'Walk-in') : filtered;
   const selected = state.workItems.find((item) => item.id === selectedId) ?? list[0];
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
@@ -605,7 +752,7 @@ function AgentView(props: DeskActions & { pushToast: (message: ReactNode, tone?:
     createWorkItem(draft);
     pushToast(<>Created work item for <strong>{draft.customerName}</strong> · <strong>{draft.deviceModel}</strong>.</>);
     setDraft(blankDraft);
-    setActiveView('queue');
+    setShowCreateForm(false);
   };
 
   const cancelItem = (workItemId: string) => {
@@ -613,69 +760,55 @@ function AgentView(props: DeskActions & { pushToast: (message: ReactNode, tone?:
       return;
     }
 
-    cancelWorkItem(workItemId, 'Agent');
+    cancelWorkItem(workItemId, actorRole);
     pushToast('Work item cancelled.');
   };
 
-  return (
-    <ModuleFrame
-      title="Agent desk"
-      subtitle="Create customer requests and manage the repair queue using form and report views."
-      views={[
-        { id: 'new', label: 'New request', group: 'New request' },
-        { id: 'queue', label: 'All work items', group: 'Work queue' },
-        { id: 'board', label: 'Board', group: 'Work queue' },
-        { id: 'walkins', label: 'Walk-ins', group: 'Work queue' },
-        { id: 'inventory', label: 'Inventory', group: 'Inventory' },
-      ]}
-      activeView={activeView}
-      onViewChange={(view) => setActiveView(view as typeof activeView)}
-    >
-      {activeView === 'inventory' ? (
-        <InventoryView {...props} canManage canReset={false} />
-      ) : activeView === 'board' ? (
-        <KanbanBoard workItems={state.workItems} updateWorkItem={updateWorkItem} pushToast={pushToast} />
-      ) : activeView === 'new' ? (
-        <CreatorSplit>
-          <CreatorFormCard title="Create a work item" eyebrow="Request form">
-            <p className="muted">Agents capture online and walk-in customer requests, then assign the WI to a technician.</p>
-            <form className="creator-form" onSubmit={submit}>
-              <label>Customer name<input required value={draft.customerName} onChange={(event) => setDraft({ ...draft, customerName: event.target.value })} placeholder="Jane Doe" /></label>
-              <div className="form-row"><label>Phone<input required value={draft.customerPhone} onChange={(event) => setDraft({ ...draft, customerPhone: event.target.value })} placeholder="+1 555 0100" /></label><label>Email<input required type="email" value={draft.customerEmail} onChange={(event) => setDraft({ ...draft, customerEmail: event.target.value })} placeholder="jane@example.com" /></label></div>
-              <div className="form-row"><label>Source<select value={draft.source} onChange={(event) => setDraft({ ...draft, source: event.target.value as WorkItemDraft['source'] })}><option>Walk-in</option><option>Online</option></select></label><label>Priority<select value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: event.target.value as WorkItemDraft['priority'] })}>{priorities.map((priority) => <option key={priority}>{priority}</option>)}</select></label></div>
-              <div className="form-row"><label>Device type<select value={draft.deviceType} onChange={(event) => setDraft({ ...draft, deviceType: event.target.value as DeviceType })}>{deviceTypes.map((type) => <option key={type}>{type}</option>)}</select></label><label>Assigned technician<select value={draft.assignedTechnicianId} onChange={(event) => setDraft({ ...draft, assignedTechnicianId: event.target.value })}>{technicians.map((tech) => <option value={tech.id} key={tech.id}>{tech.name}</option>)}</select></label></div>
-              <label>Device model<input required value={draft.deviceModel} onChange={(event) => setDraft({ ...draft, deviceModel: event.target.value })} placeholder="MacBook Pro M2 / iPhone 14 / Gaming PC" /></label>
-              <label>Serial number<input value={draft.serialNumber} onChange={(event) => setDraft({ ...draft, serialNumber: event.target.value })} placeholder="Optional serial / IMEI" /></label>
-              <label>Issue summary<textarea required value={draft.issueSummary} onChange={(event) => setDraft({ ...draft, issueSummary: event.target.value })} placeholder="Describe symptoms, damage, accessories received, and urgency" /></label>
+  if (showCreateForm) {
+    return (
+      <CreatorSplit>
+        <CreatorFormCard title="Create a work item" eyebrow="Request form">
+          <p className="muted">Capture online and walk-in customer requests, then assign the WI to a technician.</p>
+          <form className="creator-form" onSubmit={submit}>
+            <label>Customer name<input required value={draft.customerName} onChange={(event) => setDraft({ ...draft, customerName: event.target.value })} placeholder="Jane Doe" /></label>
+            <div className="form-row"><label>Phone<input required value={draft.customerPhone} onChange={(event) => setDraft({ ...draft, customerPhone: event.target.value })} placeholder="+1 555 0100" /></label><label>Email<input required type="email" value={draft.customerEmail} onChange={(event) => setDraft({ ...draft, customerEmail: event.target.value })} placeholder="jane@example.com" /></label></div>
+            <div className="form-row"><label>Source<select value={draft.source} onChange={(event) => setDraft({ ...draft, source: event.target.value as WorkItemDraft['source'] })}><option>Walk-in</option><option>Online</option></select></label><label>Priority<select value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: event.target.value as WorkItemDraft['priority'] })}>{priorities.map((priority) => <option key={priority}>{priority}</option>)}</select></label></div>
+            <div className="form-row"><label>Device type<select value={draft.deviceType} onChange={(event) => setDraft({ ...draft, deviceType: event.target.value as DeviceType })}>{deviceTypes.map((type) => <option key={type}>{type}</option>)}</select></label><label>Assigned technician<select value={draft.assignedTechnicianId} onChange={(event) => setDraft({ ...draft, assignedTechnicianId: event.target.value })}>{technicians.map((tech) => <option value={tech.id} key={tech.id}>{tech.name}</option>)}</select></label></div>
+            <label>Device model<input required value={draft.deviceModel} onChange={(event) => setDraft({ ...draft, deviceModel: event.target.value })} placeholder="MacBook Pro M2 / iPhone 14 / Gaming PC" /></label>
+            <label>Serial number<input value={draft.serialNumber} onChange={(event) => setDraft({ ...draft, serialNumber: event.target.value })} placeholder="Optional serial / IMEI" /></label>
+            <label>Issue summary<textarea required value={draft.issueSummary} onChange={(event) => setDraft({ ...draft, issueSummary: event.target.value })} placeholder="Describe symptoms, damage, accessories received, and urgency" /></label>
+            <div className="card-actions">
               <button type="submit" className="primary-button">Create WI</button>
-            </form>
-          </CreatorFormCard>
-          <RecordTable title="Recently created" rows={state.workItems.slice(0, 5).map(workItemToRow)} />
-        </CreatorSplit>
-      ) : (
-        <>
-          <CreatorRecordBrowser
-            title={activeView === 'walkins' ? 'Walk-in requests' : 'All work items'}
-            records={list}
-          selected={selected}
-          query={query}
-          setQuery={setQuery}
-          setSelectedId={setSelectedId}
-          detail={selected && (
-            <WorkItemCard item={selected}>
-              <div className="card-actions">
-                <select value={selected.assignedTechnicianId} onChange={(event) => updateWorkItem(selected.id, { assignedTechnicianId: event.target.value, status: 'Assigned' }, 'Agent', 'Agent reassigned the work item.')}>
-                  {technicians.map((tech) => <option value={tech.id} key={tech.id}>{tech.name}</option>)}
-                </select>
-                <button type="button" className="secondary-dark-button" onClick={() => { notifyCustomerNow(selected.id); pushToast('Sent a status update to the customer (mock SMS).'); }}>Notify customer</button>
-                {!terminalStatuses.includes(selected.status) && <button type="button" className="danger-button" onClick={() => cancelItem(selected.id)}>Cancel</button>}
-              </div>
-            </WorkItemCard>
-          )}
-          />
-        </>
+              <button type="button" className="secondary-button" onClick={() => setShowCreateForm(false)}>Cancel</button>
+            </div>
+          </form>
+        </CreatorFormCard>
+        <RecordTable title="Recently created" rows={state.workItems.slice(0, 5).map(workItemToRow)} />
+      </CreatorSplit>
+    );
+  }
+
+  return (
+    <CreatorRecordBrowser
+      title={subView === 'walkins' ? 'Walk-in requests' : 'All work items'}
+      records={list}
+      selected={selected}
+      query={query}
+      setQuery={setQuery}
+      setSelectedId={setSelectedId}
+      toolbar={<button type="button" className="primary-button" onClick={() => setShowCreateForm(true)}>+ New work item</button>}
+      detail={selected && (
+        <WorkItemCard item={selected}>
+          <div className="card-actions">
+            <select value={selected.assignedTechnicianId} onChange={(event) => updateWorkItem(selected.id, { assignedTechnicianId: event.target.value, status: 'Assigned' }, actorRole, `${actorRole} reassigned the work item.`)}>
+              {technicians.map((tech) => <option value={tech.id} key={tech.id}>{tech.name}</option>)}
+            </select>
+            <button type="button" className="secondary-dark-button" onClick={() => { notifyCustomerNow(selected.id); pushToast('Sent a status update to the customer (mock SMS).'); }}>Notify customer</button>
+            {!terminalStatuses.includes(selected.status) && <button type="button" className="danger-button" onClick={() => cancelItem(selected.id)}>Cancel</button>}
+          </div>
+        </WorkItemCard>
       )}
-    </ModuleFrame>
+    />
   );
 }
 
@@ -730,9 +863,8 @@ function KanbanBoard({
   );
 }
 
-function TechnicianView(props: DeskActions & { selectedTechnicianId: string; setSelectedTechnicianId: (id: string) => void; pushToast: (message: ReactNode, tone?: ToastTone) => void }) {
-  const { state, selectedTechnicianId, setSelectedTechnicianId, updateWorkItem, adjustInventory, pushToast } = props;
-  const [activeView, setActiveView] = useState<'assigned' | 'estimates' | 'repair' | 'parts'>('assigned');
+function TechnicianView(props: DeskActions & { activeView: string; selectedTechnicianId: string; setSelectedTechnicianId: (id: string) => void; pushToast: (message: ReactNode, tone?: ToastTone) => void }) {
+  const { state, activeView, selectedTechnicianId, setSelectedTechnicianId, updateWorkItem, adjustInventory, pushToast } = props;
   const assignedItems = state.workItems.filter((item) => item.assignedTechnicianId === selectedTechnicianId && item.status !== 'Cancelled');
   const estimateItems = assignedItems.filter((item) => item.status === 'Diagnosis' || item.status === 'Estimate Shared');
   const repairItems = assignedItems.filter((item) => item.status === 'Customer Approved' || item.status === 'In Repair' || item.status === 'Waiting for Parts' || item.status === 'Quality Check');
@@ -742,19 +874,13 @@ function TechnicianView(props: DeskActions & { selectedTechnicianId: string; set
     <ModuleFrame
       title="Analysis, estimates, and repair updates"
       subtitle="Technicians work from assigned reports, open a record, update diagnosis, consume parts, and move status forward."
-      views={[
-        { id: 'assigned', label: 'Assigned jobs', group: 'My jobs' },
-        { id: 'estimates', label: 'Estimates', group: 'My jobs' },
-        { id: 'repair', label: 'In repair', group: 'My jobs' },
-        { id: 'parts', label: 'Parts', group: 'Parts' },
-      ]}
-      activeView={activeView}
-      onViewChange={(view) => setActiveView(view as typeof activeView)}
       toolbar={activeView !== 'parts' ? <label className="filter-control compact-control">Technician<select value={selectedTechnicianId} onChange={(event) => setSelectedTechnicianId(event.target.value)}>{technicians.map((tech) => <option value={tech.id} key={tech.id}>{tech.name}</option>)}</select></label> : undefined}
     >
-      {activeView === 'parts' ? (
-        <InventoryView {...props} canManage={false} canReset={false} />
-      ) : (
+      {activeView === 'dashboard' && (
+        <RecordTable title="My assigned jobs" rows={assignedItems.map(workItemToRow)} />
+      )}
+      {activeView === 'parts' && <InventoryView {...props} canManage={false} canReset={false} />}
+      {(activeView === 'assigned' || activeView === 'estimates' || activeView === 'repair') && (
         <div className="creator-record-grid">
           {visibleItems.map((item) => <TechnicianWorkItem key={item.id} item={item} parts={state.inventoryParts} updateWorkItem={updateWorkItem} adjustInventory={adjustInventory} pushToast={pushToast} />)}
           {!visibleItems.length && <EmptyState title="No records in this view" body="Change the technician or view filter to see more work items." />}
@@ -841,9 +967,6 @@ function CustomerView({ state, approveEstimate, pushToast }: DeskActions & { pus
     <ModuleFrame
       title="Realtime repair progress"
       subtitle="A customer-facing report and detail view for tracking repair status, estimates, and updates."
-      views={[{ id: 'progress', label: 'My repairs', group: 'My repairs' }]}
-      activeView="progress"
-      onViewChange={() => undefined}
       toolbar={<label className="filter-control compact-control">Customer<select value={selectedCustomerId} onChange={(event) => setSelectedCustomerId(event.target.value)}>{state.customers.map((customer) => <option value={customer.id} key={customer.id}>{customer.name}</option>)}</select></label>}
     >
       <section className="creator-kpi-row" aria-label="My repair summary">
@@ -1271,73 +1394,23 @@ function exportInvoicesCsvLocally(invoices: Invoice[]) {
   );
 }
 
-interface ViewDef {
-  id: string;
-  label: string;
-  group: string;
-}
-
 function ModuleFrame({
   title,
   subtitle,
-  views,
-  activeView,
-  onViewChange,
   toolbar,
   children,
 }: {
   title: string;
   subtitle: string;
-  views: ViewDef[];
-  activeView: string;
-  onViewChange: (view: string) => void;
   toolbar?: ReactNode;
   children: ReactNode;
 }) {
-  const groups = useMemo(() => {
-    const order: string[] = [];
-    const byGroup = new Map<string, ViewDef[]>();
-    for (const view of views) {
-      if (!byGroup.has(view.group)) {
-        order.push(view.group);
-        byGroup.set(view.group, []);
-      }
-      byGroup.get(view.group)?.push(view);
-    }
-    return order.map((name) => ({ name, items: byGroup.get(name) ?? [] }));
-  }, [views]);
-
-  const activeGroup = groups.find((group) => group.items.some((item) => item.id === activeView)) ?? groups[0];
-
   return (
     <section className="module-frame">
       <div className="module-header">
         <div><p className="eyebrow">Module</p><h2>{title}</h2><p className="module-subtitle">{subtitle}</p></div>
         {toolbar}
       </div>
-      {groups.length > 1 && (
-        <nav className="view-tabs view-tabs-primary" aria-label="Sections">
-          {groups.map((group) => (
-            <button
-              type="button"
-              key={group.name}
-              className={group === activeGroup ? 'view-tab active' : 'view-tab'}
-              onClick={() => onViewChange(group.items[0].id)}
-            >
-              {group.name}
-            </button>
-          ))}
-        </nav>
-      )}
-      {activeGroup && activeGroup.items.length > 1 && (
-        <nav className="view-tabs view-tabs-secondary" aria-label={`${activeGroup.name} views`}>
-          {activeGroup.items.map((view) => (
-            <button type="button" key={view.id} className={activeView === view.id ? 'view-tab active' : 'view-tab'} onClick={() => onViewChange(view.id)}>
-              {view.label}
-            </button>
-          ))}
-        </nav>
-      )}
       <div className="view-canvas">{children}</div>
     </section>
   );
@@ -1351,13 +1424,13 @@ function CreatorFormCard({ title, eyebrow, children }: { title: string; eyebrow:
   return <section className="creator-form-card"><p className="eyebrow">{eyebrow}</p><h3>{title}</h3>{children}</section>;
 }
 
-function CreatorRecordBrowser({ title, records, selected, query, setQuery, setSelectedId, detail, hideSearch = false }: { title: string; records: WorkItem[]; selected?: WorkItem; query: string; setQuery: (query: string) => void; setSelectedId: (id: string) => void; detail?: ReactNode; hideSearch?: boolean }) {
+function CreatorRecordBrowser({ title, records, selected, query, setQuery, setSelectedId, detail, hideSearch = false, toolbar }: { title: string; records: WorkItem[]; selected?: WorkItem; query: string; setQuery: (query: string) => void; setSelectedId: (id: string) => void; detail?: ReactNode; hideSearch?: boolean; toolbar?: ReactNode }) {
   const searchId = useId();
 
   return (
     <div className="record-browser">
       <div className="creator-list-panel">
-        <ListHeader title={title} count={records.length} />
+        <div className="list-header"><h3>{title}</h3><div className="card-actions"><span>{records.length} records</span>{toolbar}</div></div>
         {!hideSearch && (
           <>
             <label className="visually-hidden" htmlFor={searchId}>Search {title}</label>
