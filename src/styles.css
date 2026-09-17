@@ -156,9 +156,11 @@ textarea { min-height: 90px; resize: vertical; line-height: 1.5; }
 .app-brand { padding-bottom: 14px; border-bottom: 1px solid color-mix(in srgb, var(--sidebar-text) 18%, transparent); }
 .sidebar-section { display: grid; gap: 8px; }
 .sidebar-label { font-size: 0.68rem; font-weight: 850; letter-spacing: .12em; text-transform: uppercase; color: color-mix(in srgb, var(--sidebar-text) 70%, transparent); }
-.nav-item { width: 100%; display: flex; align-items: center; gap: 10px; background: transparent; color: var(--sidebar-text); text-align: left; }
+.nav-item { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; background: transparent; color: var(--sidebar-text); text-align: left; }
 .nav-item.active { background: var(--primary); color: #fff; }
 .nav-item:hover { background: var(--sidebar-soft); }
+.nav-chevron { flex: none; font-size: .7em; opacity: .65; transition: transform .15s ease-out; }
+.nav-item[aria-expanded="true"] .nav-chevron { transform: rotate(90deg); }
 .sidebar-nav-group { display: grid; gap: 2px; }
 .sidebar-subnav { display: grid; gap: 2px; padding: 2px 0 6px 16px; border-left: 1px solid color-mix(in srgb, var(--sidebar-text) 20%, transparent); margin-left: 16px; }
 .nav-subitem { width: 100%; border: 0; background: transparent; color: color-mix(in srgb, var(--sidebar-text) 85%, transparent); text-align: left; padding: 7px 10px; border-radius: 9px; font-size: var(--font-sm); font-weight: 700; }

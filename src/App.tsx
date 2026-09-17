@@ -165,6 +165,13 @@ const visibleNavFor = (moduleAccess: ModuleId[]): NavItem[] => {
 
 const firstLeafId = (items: NavItem[]): string => (items[0].children ? firstLeafId(items[0].children) : items[0].id);
 
+const leafIdsOf = (items: NavItem[]): string[] => items.flatMap((item) => (item.children ? leafIdsOf(item.children) : [item.id]));
+
+const viewFromHash = (navItems: NavItem[]): string | null => {
+  const hashId = window.location.hash.replace(/^#/, '');
+  return hashId && leafIdsOf(navItems).includes(hashId) ? hashId : null;
+};
+
 const groupIdFor = (activeView: string): string => {
   const parent = masterNav.find((item) => item.id === activeView || (item.children?.some((child) => child.id === activeView) ?? false));
   return parent?.id ?? activeView;
@@ -334,12 +341,29 @@ function Workspace({
   const effectiveCustomerId = selectedCustomerId || state.customers[0]?.id || '';
 
   const navItems = useMemo(() => visibleNavFor(user.moduleAccess), [user.moduleAccess]);
-  const [activeView, setActiveView] = useState<string>(() => firstLeafId(navItems));
+  const [activeView, setActiveView] = useState<string>(() => viewFromHash(navItems) ?? firstLeafId(navItems));
+
+  useEffect(() => {
+    window.history.replaceState(null, '', `#${activeView}`);
+  }, [activeView]);
 
   const navigate = (id: string) => {
     setActiveView(id);
     setMobileNavOpen(false);
   };
+
+  useEffect(() => {
+    if (!mobileNavOpen) {
+      return undefined;
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMobileNavOpen(false);
+      }
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [mobileNavOpen]);
 
   const groupId = groupIdFor(activeView);
   const isDashboard = activeView === 'dashboard';
@@ -415,22 +439,32 @@ function Workspace({
 
 function SidebarNav({ items, activeView, onNavigate }: { items: NavItem[]; activeView: string; onNavigate: (id: string) => void }) {
   return (
-    <>
+    <nav aria-label="Sections">
       {items.map((item) => {
         const isParentActive = item.id === activeView || (item.children?.some((child) => child.id === activeView) ?? false);
+        const hasChildren = Boolean(item.children);
         return (
           <div className="sidebar-nav-group" key={item.id}>
             <button
               type="button"
               className={isParentActive ? 'nav-item active' : 'nav-item'}
+              aria-expanded={hasChildren ? isParentActive : undefined}
+              aria-current={!hasChildren && isParentActive ? 'page' : undefined}
               onClick={() => onNavigate(item.children ? item.children[0].id : item.id)}
             >
-              {item.label}
+              <span>{item.label}</span>
+              {hasChildren && <span className="nav-chevron" aria-hidden="true">▸</span>}
             </button>
             {item.children && isParentActive && (
               <div className="sidebar-subnav">
                 {item.children.map((child) => (
-                  <button type="button" key={child.id} className={child.id === activeView ? 'nav-subitem active' : 'nav-subitem'} onClick={() => onNavigate(child.id)}>
+                  <button
+                    type="button"
+                    key={child.id}
+                    className={child.id === activeView ? 'nav-subitem active' : 'nav-subitem'}
+                    aria-current={child.id === activeView ? 'page' : undefined}
+                    onClick={() => onNavigate(child.id)}
+                  >
                     {child.label}
                   </button>
                 ))}
@@ -439,7 +473,7 @@ function SidebarNav({ items, activeView, onNavigate }: { items: NavItem[]; activ
           </div>
         );
       })}
-    </>
+    </nav>
   );
 }
 
@@ -604,6 +638,7 @@ function UsersPanel({ currentUser, pushToast }: { currentUser: AuthUser; pushToa
   const [users, setUsers] = useState<ManagedUser[]>(() => (isApiPersistenceEnabled ? [] : localDemoManagedUsers));
   const [userDraft, setUserDraft] = useState<UserDraft>(blankUser);
   const [userError, setUserError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (!isApiPersistenceEnabled) {
@@ -623,6 +658,7 @@ function UsersPanel({ currentUser, pushToast }: { currentUser: AuthUser; pushToa
       return;
     }
 
+    setIsSubmitting(true);
     try {
       const response = await userApi.create(userDraft);
       setUsers(response.users);
@@ -632,6 +668,8 @@ function UsersPanel({ currentUser, pushToast }: { currentUser: AuthUser; pushToa
       const message = error instanceof Error ? error.message : 'Unable to create user.';
       setUserError(message);
       pushToast(message, 'error');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -666,7 +704,7 @@ function UsersPanel({ currentUser, pushToast }: { currentUser: AuthUser; pushToa
           <div className="form-row"><label>Profile<select value={userDraft.profile} onChange={(event) => setUserDraft({ ...userDraft, profile: event.target.value as AuthProfile })}>{authProfiles.map((profile) => <option key={profile} value={profile}>{profile}</option>)}</select></label><label>Password<input required type="password" minLength={8} value={userDraft.password} onChange={(event) => setUserDraft({ ...userDraft, password: event.target.value })} placeholder="Minimum 8 chars" /></label></div>
           <label className="inline-check"><input type="checkbox" checked={userDraft.active} onChange={(event) => setUserDraft({ ...userDraft, active: event.target.checked })} /> Active user</label>
           {userError && <div className="login-error">{userError}</div>}
-          <button className="primary-button" type="submit">Create user</button>
+          <button className="primary-button" type="submit" disabled={isSubmitting}>{isSubmitting ? 'Creating…' : 'Create user'}</button>
         </form>
       </CreatorFormCard>
       <div className="creator-list-panel">
@@ -721,34 +759,40 @@ function InvoicesPanel({
   pushToast: (message: ReactNode, tone?: ToastTone) => void;
 }) {
   const [invoiceDraft, setInvoiceDraft] = useState<InvoiceDraft>(() => blankInvoiceDraft(state.workItems[0]));
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const selectedWorkItem = state.workItems.find((item) => item.id === invoiceDraft.workItemId);
   const invoiceTotal = invoiceDraft.laborAmount + invoiceDraft.partsAmount + invoiceDraft.diagnosticFee || invoiceDraft.amount;
 
-  const submitInvoice = (event: FormEvent<HTMLFormElement>) => {
+  const submitInvoice = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    createInvoice(invoiceDraft);
-    setInvoiceDraft(blankInvoiceDraft(state.workItems[0]));
-    pushToast(`Invoice issued for ${currencyFormatter.format(invoiceTotal)}.`);
+    setIsSubmitting(true);
+    try {
+      await createInvoice(invoiceDraft);
+      setInvoiceDraft(blankInvoiceDraft(state.workItems[0]));
+      pushToast(`Invoice issued for ${currencyFormatter.format(invoiceTotal)}.`);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const changeInvoiceStatus = (invoiceId: string, status: InvoiceStatus) => {
     if (status === 'Void' && !window.confirm('Void this invoice? This cannot be undone.')) {
-      return;
+      return Promise.resolve();
     }
 
-    updateInvoiceStatus(invoiceId, status);
     pushToast(`Invoice ${invoiceId} marked ${status}.`);
+    return updateInvoiceStatus(invoiceId, status);
   };
 
-  const submitPayment = (invoiceId: string, payment: InvoicePaymentDraft) => {
-    recordInvoicePayment(invoiceId, payment);
+  const submitPayment = async (invoiceId: string, payment: InvoicePaymentDraft) => {
+    await recordInvoicePayment(invoiceId, payment);
     pushToast(`Payment recorded for ${invoiceId} via ${payment.method}.`);
   };
 
   return (
     <CreatorSplit>
       <CreatorFormCard title="Create invoice" eyebrow="Invoice form">
-        <form className="creator-form" onSubmit={submitInvoice}>
+        <form className="creator-form" onSubmit={(event) => void submitInvoice(event)}>
           <label>Work item<select value={invoiceDraft.workItemId} onChange={(event) => {
             const item = state.workItems.find((workItem) => workItem.id === event.target.value);
             setInvoiceDraft(blankInvoiceDraft(item));
@@ -760,7 +804,7 @@ function InvoicesPanel({
           <label>Diagnostic fee<input type="number" min="0" value={invoiceDraft.diagnosticFee} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, diagnosticFee: Number(event.target.value) })} /></label>
           <p className="cost-breakdown"><span>Total <strong>{currencyFormatter.format(invoiceTotal)}</strong></span></p>
           <label>Notes<textarea value={invoiceDraft.notes} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, notes: event.target.value })} placeholder={selectedWorkItem?.requiredChanges ?? 'Invoice notes'} /></label>
-          <button className="primary-button" type="submit">Issue invoice</button>
+          <button className="primary-button" type="submit" disabled={isSubmitting}>{isSubmitting ? 'Issuing…' : 'Issue invoice'}</button>
         </form>
       </CreatorFormCard>
       <InvoiceList invoices={state.invoices} updateInvoiceStatus={changeInvoiceStatus} recordPayment={submitPayment} pushToast={pushToast} />
@@ -792,6 +836,7 @@ function WorkItemsSection({
   const [draft, setDraft] = useState<WorkItemDraft>(blankDraft);
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState(state.workItems[0]?.id ?? '');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const filtered = state.workItems.filter((item) =>
     `${item.id} ${item.customerName} ${item.deviceModel} ${item.status}`.toLowerCase().includes(query.toLowerCase()),
@@ -799,12 +844,17 @@ function WorkItemsSection({
   const list = subView === 'walkins' ? filtered.filter((item) => item.source === 'Walk-in') : filtered;
   const selected = state.workItems.find((item) => item.id === selectedId) ?? list[0];
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    createWorkItem(draft);
-    pushToast(<>Created work item for <strong>{draft.customerName}</strong> · <strong>{draft.deviceModel}</strong>.</>);
-    setDraft(blankDraft);
-    setShowCreateForm(false);
+    setIsSubmitting(true);
+    try {
+      await createWorkItem(draft);
+      pushToast(<>Created work item for <strong>{draft.customerName}</strong> · <strong>{draft.deviceModel}</strong>.</>);
+      setDraft(blankDraft);
+      setShowCreateForm(false);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const cancelItem = (workItemId: string) => {
@@ -821,7 +871,7 @@ function WorkItemsSection({
       <CreatorSplit>
         <CreatorFormCard title="Create a work item" eyebrow="Request form">
           <p className="muted">Capture online and walk-in customer requests, then assign the WI to a technician.</p>
-          <form className="creator-form" onSubmit={submit}>
+          <form className="creator-form" onSubmit={(event) => void submit(event)}>
             <label>Customer name<input required value={draft.customerName} onChange={(event) => setDraft({ ...draft, customerName: event.target.value })} placeholder="Jane Doe" /></label>
             <div className="form-row"><label>Phone<input required value={draft.customerPhone} onChange={(event) => setDraft({ ...draft, customerPhone: event.target.value })} placeholder="+1 555 0100" /></label><label>Email<input required type="email" value={draft.customerEmail} onChange={(event) => setDraft({ ...draft, customerEmail: event.target.value })} placeholder="jane@example.com" /></label></div>
             <div className="form-row"><label>Source<select value={draft.source} onChange={(event) => setDraft({ ...draft, source: event.target.value as WorkItemDraft['source'] })}><option>Walk-in</option><option>Online</option></select></label><label>Priority<select value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: event.target.value as WorkItemDraft['priority'] })}>{priorities.map((priority) => <option key={priority}>{priority}</option>)}</select></label></div>
@@ -830,8 +880,8 @@ function WorkItemsSection({
             <label>Serial number<input value={draft.serialNumber} onChange={(event) => setDraft({ ...draft, serialNumber: event.target.value })} placeholder="Optional serial / IMEI" /></label>
             <label>Issue summary<textarea required value={draft.issueSummary} onChange={(event) => setDraft({ ...draft, issueSummary: event.target.value })} placeholder="Describe symptoms, damage, accessories received, and urgency" /></label>
             <div className="card-actions">
-              <button type="submit" className="primary-button">Create WI</button>
-              <button type="button" className="secondary-button" onClick={() => setShowCreateForm(false)}>Cancel</button>
+              <button type="submit" className="primary-button" disabled={isSubmitting}>{isSubmitting ? 'Creating…' : 'Create WI'}</button>
+              <button type="button" className="secondary-button" onClick={() => setShowCreateForm(false)} disabled={isSubmitting}>Cancel</button>
             </div>
           </form>
         </CreatorFormCard>
@@ -952,25 +1002,31 @@ function TechnicianWorkItem({ item, parts, updateWorkItem, adjustInventory, push
   const [status, setStatus] = useState<WorkItemStatus>(item.status);
   const [promisedBy, setPromisedBy] = useState(item.promisedBy);
   const [partSku, setPartSku] = useState(parts[0]?.sku ?? '');
+  const [isSaving, setIsSaving] = useState(false);
 
   const closingStatuses: WorkItemStatus[] = ['Ready for Pickup', 'Delivered'];
   const blockedByMissingAnalysis = closingStatuses.includes(status) && !analysis.trim();
   const estimatedPrice = (Number(laborEstimate) || 0) + (Number(partsEstimate) || 0) + (Number(diagnosticFee) || 0);
 
-  const save = () => {
+  const save = async () => {
     if (blockedByMissingAnalysis) {
       pushToast('Add a diagnosis/analysis note before moving this to Ready for Pickup or Delivered.', 'error');
       return;
     }
 
-    const selectedParts = partSku ? Array.from(new Set([...item.partsRequired, partSku])) : item.partsRequired;
-    updateWorkItem(
-      item.id,
-      { analysis, requiredChanges, estimatedPrice, laborEstimate: Number(laborEstimate) || 0, partsEstimate: Number(partsEstimate) || 0, diagnosticFee: Number(diagnosticFee) || 0, status, promisedBy, partsRequired: selectedParts },
-      'Technician',
-      `Technician updated status to ${status}.`,
-    );
-    pushToast(`${item.id} updated — status set to ${status}.`);
+    setIsSaving(true);
+    try {
+      const selectedParts = partSku ? Array.from(new Set([...item.partsRequired, partSku])) : item.partsRequired;
+      await updateWorkItem(
+        item.id,
+        { analysis, requiredChanges, estimatedPrice, laborEstimate: Number(laborEstimate) || 0, partsEstimate: Number(partsEstimate) || 0, diagnosticFee: Number(diagnosticFee) || 0, status, promisedBy, partsRequired: selectedParts },
+        'Technician',
+        `Technician updated status to ${status}.`,
+      );
+      pushToast(`${item.id} updated — status set to ${status}.`);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const consumePart = () => {
@@ -997,7 +1053,7 @@ function TechnicianWorkItem({ item, parts, updateWorkItem, adjustInventory, push
       <p className="cost-breakdown"><span>Total estimate <strong>{currencyFormatter.format(estimatedPrice)}</strong></span></p>
       <div className="form-row"><label>Status<select value={status} onChange={(event) => setStatus(event.target.value as WorkItemStatus)}>{getNextStatuses(item.status).map((value) => <option key={value}>{value}</option>)}</select></label><label>Part<select value={partSku} onChange={(event) => setPartSku(event.target.value)}>{parts.map((part) => <option value={part.sku} key={part.sku}>{part.name} ({part.quantity})</option>)}</select></label></div>
       {blockedByMissingAnalysis && <p className="workflow-warning">Add a diagnosis/analysis note before this status can be saved.</p>}
-      <div className="card-actions"><button type="button" className="primary-button" onClick={save} disabled={blockedByMissingAnalysis}>Save technician update</button><button type="button" className="secondary-dark-button" onClick={consumePart}>Use part</button></div>
+      <div className="card-actions"><button type="button" className="primary-button" onClick={() => void save()} disabled={blockedByMissingAnalysis || isSaving}>{isSaving ? 'Saving…' : 'Save technician update'}</button><button type="button" className="secondary-dark-button" onClick={consumePart}>Use part</button></div>
     </article>
   );
 }
@@ -1014,15 +1070,21 @@ function RepairsPanel({
   pushToast: (message: ReactNode, tone?: ToastTone) => void;
 }) {
   const [selectedId, setSelectedId] = useState('');
+  const [approvingId, setApprovingId] = useState<string | null>(null);
   const customerItems = state.workItems.filter((item) => item.customerId === selectedCustomerId);
   const selected = customerItems.find((item) => item.id === selectedId) ?? customerItems[0];
   const awaitingMyApproval = customerItems.filter((item) => item.status === 'Estimate Shared' && !item.approvedByCustomer).length;
   const completedRepairs = customerItems.filter((item) => item.status === 'Delivered').length;
   const totalPaid = state.invoices.filter((invoice) => invoice.customerId === selectedCustomerId && invoice.status === 'Paid').reduce((sum, invoice) => sum + invoice.amount, 0);
 
-  const approve = (workItemId: string) => {
-    approveEstimate(workItemId);
-    pushToast('Estimate approved — the technician has been notified.');
+  const approve = async (workItemId: string) => {
+    setApprovingId(workItemId);
+    try {
+      await approveEstimate(workItemId);
+      pushToast('Estimate approved — the technician has been notified.');
+    } finally {
+      setApprovingId(null);
+    }
   };
 
   return (
@@ -1044,7 +1106,16 @@ function RepairsPanel({
         detail={selected && (
           <article className="customer-detail-card">
             <WorkItemCard item={selected} />
-            {selected.status === 'Estimate Shared' && !selected.approvedByCustomer && <button type="button" className="primary-button" onClick={() => approve(selected.id)}>Approve estimate</button>}
+            {selected.status === 'Estimate Shared' && !selected.approvedByCustomer && (
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => void approve(selected.id)}
+                disabled={approvingId === selected.id}
+              >
+                {approvingId === selected.id ? 'Approving…' : 'Approve estimate'}
+              </button>
+            )}
             <ProgressTracker status={selected.status} />
             <h3>Live updates</h3>
             <ul className="timeline">{selected.updates.map((update) => <li key={update.id}><strong>{update.actor}</strong> · {update.message}<span>{update.at}</span></li>)}</ul>
@@ -1178,7 +1249,7 @@ function InvoiceList({
 }: {
   invoices: Invoice[];
   updateInvoiceStatus: DeskActions['updateInvoiceStatus'];
-  recordPayment: (invoiceId: string, payment: InvoicePaymentDraft) => void;
+  recordPayment: (invoiceId: string, payment: InvoicePaymentDraft) => Promise<void>;
   pushToast: (message: ReactNode, tone?: ToastTone) => void;
 }) {
   const exportCsv = () => {
@@ -1206,10 +1277,20 @@ function InvoiceRow({
 }: {
   invoice: Invoice;
   updateInvoiceStatus: DeskActions['updateInvoiceStatus'];
-  recordPayment: (invoiceId: string, payment: InvoicePaymentDraft) => void;
+  recordPayment: (invoiceId: string, payment: InvoicePaymentDraft) => Promise<void>;
 }) {
   const [method, setMethod] = useState<PaymentMethod>('Card (Test Mode)');
   const [reference, setReference] = useState('');
+  const [isRecording, setIsRecording] = useState(false);
+
+  const handleRecordPayment = async () => {
+    setIsRecording(true);
+    try {
+      await recordPayment(invoice.id, { method, reference });
+    } finally {
+      setIsRecording(false);
+    }
+  };
 
   return (
     <div className="creator-record-card">
@@ -1231,8 +1312,8 @@ function InvoiceRow({
             {paymentMethods.map((option) => <option key={option}>{option}</option>)}
           </select>
           <input placeholder="Reference (optional)" value={reference} onChange={(event) => setReference(event.target.value)} />
-          <button type="button" className="primary-button" onClick={() => recordPayment(invoice.id, { method, reference })}>Record payment</button>
-          <button type="button" className="danger-button" onClick={() => updateInvoiceStatus(invoice.id, 'Void')}>Void</button>
+          <button type="button" className="primary-button" onClick={() => void handleRecordPayment()} disabled={isRecording}>{isRecording ? 'Recording…' : 'Record payment'}</button>
+          <button type="button" className="danger-button" onClick={() => updateInvoiceStatus(invoice.id, 'Void')} disabled={isRecording}>Void</button>
         </div>
       ) : (
         <select value={invoice.status} onChange={(event) => updateInvoiceStatus(invoice.id, event.target.value as InvoiceStatus)}>
