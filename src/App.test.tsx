@@ -21,17 +21,18 @@ async function loginAs(email: string, password: string) {
 }
 
 describe('App workflow', () => {
-  it('shows homepage and logs admin into all modules', async () => {
+  it('shows homepage and logs admin into every section, with no module switcher', async () => {
     const user = await loginAs('admin@servicedesk.local', 'Admin@12345');
 
     expect(window.location.pathname).toBe('/app/test-session-123');
-    expect(screen.getByRole('button', { name: /agent module/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /technician module/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /customer module/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /agent module/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^work items$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /my jobs/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /my repairs/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /switch to dark mode/i })).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: /technician module/i }));
-    expect(screen.getByRole('heading', { name: /analysis, estimates, and repair updates/i })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /my jobs/i }));
+    expect(screen.getByRole('heading', { name: /^my jobs$/i })).toBeInTheDocument();
   });
 
   it('logs into agent module and creates a work item', async () => {

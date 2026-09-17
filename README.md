@@ -100,83 +100,46 @@ The homepage explains the product before login:
 
 After login, users enter an app shell similar to a low-code business app:
 
-- Left sidebar with a role switcher (Modules) and, below it, that role's own nested section list
+- Left sidebar showing that user's own sections directly — no role/module switcher
 - Topbar with a compact breadcrumb, theme toggle, and logout
-- A dashboard KPI summary that only appears on each role's Dashboard section, not smeared across every page
+- A dashboard KPI summary that only appears on the Dashboard section, not smeared across every page
 - Forms on the left and reports/record details on the right
 - Master-data reports and filtered views
 - Responsive layout tuned for phone, tablet, and desktop widths
 
-## Modules
+## Sections
 
-| Profile | Modules |
-| --- | --- |
-| Admin | Admin, Agent, Technician, Customer |
-| Agent | Agent |
-| Technician | Technician |
-| Customer | Customer |
+There is one master list of sections for the whole app. Which ones a signed-in user sees is purely a show/hide filter against their own `moduleAccess` — not a separate menu built per role. Admin's access covers every tag, so **Admin sees the full list below**; Agent, Technician, and Customer each see only their own slice, with no switcher to reach anyone else's.
 
-### Admin module
+| Section | Sub-sections | Who sees it |
+| --- | --- | --- |
+| Dashboard | — | Admin, Agent, Technician |
+| People | Users, Customers, Technicians | Admin |
+| Inventory | — | Admin, Agent |
+| Work Items | All Work Items, Board, Walk-ins | Admin, Agent |
+| My Jobs | Assigned, Estimates, In Repair | Admin, Technician |
+| Parts | — | Admin, Technician |
+| Invoices | — | Admin |
+| Catalog | — | Admin |
+| Notifications | — | Admin |
+| Export Reports | — | Admin |
+| My Repairs | — | Admin, Customer |
 
-Sidebar sections:
+Because Admin's `moduleAccess` includes every tag, Admin can open **My Jobs** (the same technician-editing cards, for any technician via the picker) and **My Repairs** (the same customer view, for any customer via the picker) directly — useful for support/inspection — without needing a separate "view as" mode.
 
-- Dashboard
-- People — Users, Customers, Technicians
-- Inventory
-- Work Items — All Work Items, Board, Walk-ins
-- Invoices
-- Catalog
-- Notifications
-- Export Reports
+Capabilities by section:
 
-Capabilities:
-
-- User management: create users with profile assignment, activate/deactivate
-- Customer and technician master reports
-- Full work-item management (the same create/assign/board/walk-ins/cancel/notify capability Agent has) directly from Admin, with no need to switch roles
-- Invoice creation with itemized labor/parts/diagnostic-fee breakdown, payment recording, and CSV export
-- Inventory management and demo data reset
-- Outbound notification log (mock SMS/email — see Growth Modules below)
-- Build-your-own report builder with saved reports and CSV export
-
-### Agent module
-
-Sidebar sections:
-
-- Dashboard
-- Work Items — All Work Items, Board, Walk-ins
-- Inventory
-
-Capabilities:
-
-- Create online or walk-in repair work items (a "+ New work item" action inside Work Items, not a separate tab)
-- Capture customer/device details, assign/reassign technicians
-- Kanban board view of all work items by status, with one-click "advance to next status"
-- Search and cancel work items; manually notify a customer
-- Manage spare-parts inventory
-
-### Technician module
-
-Sidebar sections:
-
-- Dashboard
-- My Jobs — Assigned, Estimates, In Repair
-- Parts
-
-Capabilities:
-
-- View assigned repair jobs, filtered by technician
-- Add diagnosis and required changes
-- Itemized labor/parts/diagnostic-fee estimate breakdown
-- Update promised time and repair status (blocked from Ready for Pickup/Delivered without a diagnosis note on file)
-- Consume spare parts from inventory
-
-### Customer module
-
-Capabilities:
-
-- View repair progress, select a repair record, see the update timeline and outbound notifications sent about it
-- Approve shared estimates
+- **Dashboard** — KPI summary plus role-appropriate quick reports (Admin gets customer/technician/invoice/part counts; Agent and Technician get a lighter recent-activity view)
+- **People** — user management (create with profile assignment, activate/deactivate), customer and technician master reports
+- **Inventory** — manage spare-parts stock (Admin can also reset demo data; Agent cannot)
+- **Work Items** — create work items (a "+ New work item" action inside All Work Items, not a separate tab), assign/reassign technicians, Kanban board with one-click "advance to next status", cancel, manually notify a customer
+- **My Jobs** — add diagnosis and itemized labor/parts/diagnostic-fee estimates, update status (blocked from Ready for Pickup/Delivered without a diagnosis note on file), consume spare parts
+- **Parts** — read-only stock view
+- **Invoices** — itemized labor/parts/diagnostic-fee invoice creation, payment recording, CSV export
+- **Catalog** — browse repair categories and starting prices
+- **Notifications** — outbound customer notification log (mock SMS/email — see Growth Modules below)
+- **Export Reports** — build-your-own report builder with saved reports and CSV export
+- **My Repairs** — track repair progress, see the update timeline and outbound notifications, approve shared estimates
 
 ## Demo Login Users
 
