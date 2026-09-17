@@ -148,6 +148,8 @@ a:hover { text-decoration: underline; }
 .danger-button { background: var(--danger-bg); color: var(--danger-text); }
 .theme-toggle { display: inline-flex; align-items: center; gap: 8px; background: var(--surface); color: var(--text); border: 1px solid var(--border); box-shadow: var(--shadow-sm); white-space: nowrap; }
 .topbar-actions { display: flex; gap: 8px; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
+.icon-button { display: inline-flex; align-items: center; gap: 7px; }
+.icon-button svg { flex: none; }
 
 label { display: grid; gap: 7px; font-weight: 750; color: var(--muted-strong); font-size: var(--font-sm); }
 input, select, textarea { width: 100%; border: 1px solid var(--border); border-radius: 11px; padding: 9px 11px; background: var(--surface); color: var(--text-strong); }
@@ -162,6 +164,8 @@ textarea { min-height: 90px; resize: vertical; line-height: 1.5; }
 .sidebar-section { display: grid; gap: 8px; }
 .sidebar-label { font-size: 0.68rem; font-weight: 850; letter-spacing: .12em; text-transform: uppercase; color: color-mix(in srgb, var(--sidebar-text) 70%, transparent); }
 .nav-item { width: 100%; min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 10px; background: transparent; color: var(--sidebar-text); text-align: left; }
+.nav-item-label { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.nav-item-label svg { flex: none; opacity: .85; }
 .nav-item.active { background: var(--primary); color: var(--on-primary); }
 .nav-item:hover { background: var(--sidebar-soft); }
 .nav-chevron { flex: none; font-size: .7em; opacity: .65; transition: transform .15s ease-out; }
@@ -244,7 +248,7 @@ dd { margin: 3px 0 0; font-weight: 750; color: var(--text-strong); }
 .stock-low { color: var(--danger-text) !important; font-weight: 850; }
 .stock-ok { color: var(--success-text) !important; font-weight: 850; }
 .stepper { display: flex; gap: 8px; }
-.stepper button { width: 44px; height: 44px; border: 0; border-radius: 9px; background: var(--primary-soft); color: var(--primary-strong); font-weight: 900; }
+.stepper button { width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 9px; background: var(--primary-soft); color: var(--primary-strong); font-weight: 900; }
 .progress-tracker { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; list-style: none; padding: 0; margin: 18px 0; }
 .progress-tracker li { border: 1px dashed var(--border); border-radius: 11px; padding: 9px; font-size: var(--font-xs); color: var(--muted); }
 .progress-tracker li.done { border-style: solid; background: var(--primary-soft); color: var(--primary-strong); font-weight: 850; }

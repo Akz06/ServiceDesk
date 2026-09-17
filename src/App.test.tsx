@@ -41,7 +41,7 @@ describe('App workflow', () => {
     expect(screen.queryByRole('button', { name: /technician module/i })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /^work items$/i }));
-    await user.click(screen.getByRole('button', { name: /\+ new work item/i }));
+    await user.click(screen.getByRole('button', { name: /new work item/i }));
     expect(screen.getByRole('heading', { name: /create a work item/i })).toBeInTheDocument();
 
     await user.type(screen.getByLabelText(/customer name/i), 'Asha Rao');

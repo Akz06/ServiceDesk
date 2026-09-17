@@ -1,5 +1,32 @@
 import { useEffect, useId, useMemo, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
+import {
+  Bell,
+  BookOpen,
+  Boxes,
+  CheckCircle2,
+  ChevronRight,
+  ClipboardList,
+  Cog,
+  CreditCard,
+  Download,
+  FileBarChart2,
+  LayoutDashboard,
+  LogOut,
+  Menu,
+  Minus,
+  Moon,
+  Plus,
+  Receipt,
+  Smartphone,
+  Sun,
+  UserPlus,
+  Users as UsersIcon,
+  Wrench,
+  X,
+  XCircle,
+} from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { ProgressTracker } from './components/ProgressTracker';
 import { ToastStack } from './components/ToastStack';
 import { serviceCategories, technicians } from './data/repairShop';
@@ -102,6 +129,7 @@ interface NavItem {
   id: string;
   label: string;
   modules: ModuleId[];
+  icon?: LucideIcon;
   children?: NavItem[];
 }
 
@@ -116,29 +144,29 @@ interface SectionMeta {
  * role. Admin's moduleAccess covers all four tags, so Admin sees everything.
  */
 const masterNav: NavItem[] = [
-  { id: 'dashboard', label: 'Dashboard', modules: ['admin', 'agent', 'technician'] },
-  { id: 'people', label: 'People', modules: ['admin'], children: [
+  { id: 'dashboard', label: 'Dashboard', modules: ['admin', 'agent', 'technician'], icon: LayoutDashboard },
+  { id: 'people', label: 'People', modules: ['admin'], icon: UsersIcon, children: [
     { id: 'users', label: 'Users', modules: ['admin'] },
     { id: 'customers', label: 'Customers', modules: ['admin'] },
     { id: 'technicians', label: 'Technicians', modules: ['admin'] },
   ] },
-  { id: 'inventory', label: 'Inventory', modules: ['admin', 'agent'] },
-  { id: 'workitems', label: 'Work Items', modules: ['admin', 'agent'], children: [
+  { id: 'inventory', label: 'Inventory', modules: ['admin', 'agent'], icon: Boxes },
+  { id: 'workitems', label: 'Work Items', modules: ['admin', 'agent'], icon: Wrench, children: [
     { id: 'wi-all', label: 'All Work Items', modules: ['admin', 'agent'] },
     { id: 'wi-board', label: 'Board', modules: ['admin', 'agent'] },
     { id: 'wi-walkins', label: 'Walk-ins', modules: ['admin', 'agent'] },
   ] },
-  { id: 'myjobs', label: 'My Jobs', modules: ['admin', 'technician'], children: [
+  { id: 'myjobs', label: 'My Jobs', modules: ['admin', 'technician'], icon: ClipboardList, children: [
     { id: 'myjobs-assigned', label: 'Assigned', modules: ['admin', 'technician'] },
     { id: 'myjobs-estimates', label: 'Estimates', modules: ['admin', 'technician'] },
     { id: 'myjobs-repair', label: 'In Repair', modules: ['admin', 'technician'] },
   ] },
-  { id: 'parts', label: 'Parts', modules: ['admin', 'technician'] },
-  { id: 'invoices', label: 'Invoices', modules: ['admin'] },
-  { id: 'catalog', label: 'Catalog', modules: ['admin'] },
-  { id: 'notifications', label: 'Notifications', modules: ['admin'] },
-  { id: 'reports', label: 'Export Reports', modules: ['admin'] },
-  { id: 'repairs', label: 'My Repairs', modules: ['admin', 'customer'] },
+  { id: 'parts', label: 'Parts', modules: ['admin', 'technician'], icon: Cog },
+  { id: 'invoices', label: 'Invoices', modules: ['admin'], icon: Receipt },
+  { id: 'catalog', label: 'Catalog', modules: ['admin'], icon: BookOpen },
+  { id: 'notifications', label: 'Notifications', modules: ['admin'], icon: Bell },
+  { id: 'reports', label: 'Export Reports', modules: ['admin'], icon: FileBarChart2 },
+  { id: 'repairs', label: 'My Repairs', modules: ['admin', 'customer'], icon: Smartphone },
 ];
 
 const sectionMeta: Record<string, SectionMeta> = {
@@ -396,14 +424,14 @@ function Workspace({
               aria-expanded={mobileNavOpen}
               onClick={() => setMobileNavOpen((open) => !open)}
             >
-              {mobileNavOpen ? '✕' : '☰'}
+              {mobileNavOpen ? <X aria-hidden="true" size={20} /> : <Menu aria-hidden="true" size={20} />}
             </button>
             <h1 className="topbar-crumb">{user.role} workspace</h1>
           </div>
           <div className="user-menu">
             <span>{user.name}</span>
             <small>{user.role}</small>
-            <div className="topbar-actions"><ThemeToggle theme={theme} onToggle={onThemeToggle} /><button type="button" className="secondary-button" onClick={() => void onLogout()}>Logout</button></div>
+            <div className="topbar-actions"><ThemeToggle theme={theme} onToggle={onThemeToggle} /><button type="button" className="secondary-button icon-button" onClick={() => void onLogout()}><LogOut aria-hidden="true" size={16} /><span>Logout</span></button></div>
           </div>
         </header>
 
@@ -443,6 +471,7 @@ function SidebarNav({ items, activeView, onNavigate }: { items: NavItem[]; activ
       {items.map((item) => {
         const isParentActive = item.id === activeView || (item.children?.some((child) => child.id === activeView) ?? false);
         const hasChildren = Boolean(item.children);
+        const Icon = item.icon;
         return (
           <div className="sidebar-nav-group" key={item.id}>
             <button
@@ -452,8 +481,8 @@ function SidebarNav({ items, activeView, onNavigate }: { items: NavItem[]; activ
               aria-current={!hasChildren && isParentActive ? 'page' : undefined}
               onClick={() => onNavigate(item.children ? item.children[0].id : item.id)}
             >
-              <span>{item.label}</span>
-              {hasChildren && <span className="nav-chevron" aria-hidden="true">▸</span>}
+              <span className="nav-item-label">{Icon && <Icon aria-hidden="true" size={18} />}<span>{item.label}</span></span>
+              {hasChildren && <ChevronRight className="nav-chevron" aria-hidden="true" size={16} />}
             </button>
             {item.children && isParentActive && (
               <div className="sidebar-subnav">
@@ -704,7 +733,7 @@ function UsersPanel({ currentUser, pushToast }: { currentUser: AuthUser; pushToa
           <div className="form-row"><label>Profile<select value={userDraft.profile} onChange={(event) => setUserDraft({ ...userDraft, profile: event.target.value as AuthProfile })}>{authProfiles.map((profile) => <option key={profile} value={profile}>{profile}</option>)}</select></label><label>Password<input required type="password" minLength={8} value={userDraft.password} onChange={(event) => setUserDraft({ ...userDraft, password: event.target.value })} placeholder="Minimum 8 chars" /></label></div>
           <label className="inline-check"><input type="checkbox" checked={userDraft.active} onChange={(event) => setUserDraft({ ...userDraft, active: event.target.checked })} /> Active user</label>
           {userError && <div className="login-error">{userError}</div>}
-          <button className="primary-button" type="submit" disabled={isSubmitting}>{isSubmitting ? 'Creating…' : 'Create user'}</button>
+          <button className="primary-button icon-button" type="submit" disabled={isSubmitting}><UserPlus aria-hidden="true" size={16} /><span>{isSubmitting ? 'Creating…' : 'Create user'}</span></button>
         </form>
       </CreatorFormCard>
       <div className="creator-list-panel">
@@ -724,13 +753,13 @@ function UsersPanel({ currentUser, pushToast }: { currentUser: AuthUser; pushToa
 function CustomersPanel({ state, pushToast }: { state: DeskActions['state']; pushToast: (message: ReactNode, tone?: ToastTone) => void }) {
   return (
     <>
-      <div className="card-actions"><button type="button" className="secondary-dark-button" onClick={() => {
+      <div className="card-actions"><button type="button" className="secondary-dark-button icon-button" onClick={() => {
         if (isApiPersistenceEnabled) {
           void exportApi.customersCsv().catch((error: unknown) => pushToast(error instanceof Error ? error.message : 'Export failed.', 'error'));
           return;
         }
         exportCustomersCsvLocally(state);
-      }}>Export CSV</button></div>
+      }}><Download aria-hidden="true" size={16} /><span>Export CSV</span></button></div>
       <RecordTable title="Customer master" rows={state.customers.map((customer) => ({ id: customer.id, primary: customer.name, secondary: `${customer.phone} · ${customer.email}`, meta: `${state.workItems.filter((item) => item.customerId === customer.id).length} repairs` }))} />
     </>
   );
@@ -804,7 +833,7 @@ function InvoicesPanel({
           <label>Diagnostic fee<input type="number" min="0" value={invoiceDraft.diagnosticFee} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, diagnosticFee: Number(event.target.value) })} /></label>
           <p className="cost-breakdown"><span>Total <strong>{currencyFormatter.format(invoiceTotal)}</strong></span></p>
           <label>Notes<textarea value={invoiceDraft.notes} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, notes: event.target.value })} placeholder={selectedWorkItem?.requiredChanges ?? 'Invoice notes'} /></label>
-          <button className="primary-button" type="submit" disabled={isSubmitting}>{isSubmitting ? 'Issuing…' : 'Issue invoice'}</button>
+          <button className="primary-button icon-button" type="submit" disabled={isSubmitting}><Receipt aria-hidden="true" size={16} /><span>{isSubmitting ? 'Issuing…' : 'Issue invoice'}</span></button>
         </form>
       </CreatorFormCard>
       <InvoiceList invoices={state.invoices} updateInvoiceStatus={changeInvoiceStatus} recordPayment={submitPayment} pushToast={pushToast} />
@@ -898,7 +927,7 @@ function WorkItemsSection({
       query={query}
       setQuery={setQuery}
       setSelectedId={setSelectedId}
-      toolbar={<button type="button" className="primary-button" onClick={() => setShowCreateForm(true)}>+ New work item</button>}
+      toolbar={<button type="button" className="primary-button icon-button" onClick={() => setShowCreateForm(true)}><Plus aria-hidden="true" size={16} /><span>New work item</span></button>}
       detail={selected && (
         <WorkItemCard item={selected}>
           <div className="card-actions">
@@ -1109,11 +1138,12 @@ function RepairsPanel({
             {selected.status === 'Estimate Shared' && !selected.approvedByCustomer && (
               <button
                 type="button"
-                className="primary-button"
+                className="primary-button icon-button"
                 onClick={() => void approve(selected.id)}
                 disabled={approvingId === selected.id}
               >
-                {approvingId === selected.id ? 'Approving…' : 'Approve estimate'}
+                <CheckCircle2 aria-hidden="true" size={16} />
+                <span>{approvingId === selected.id ? 'Approving…' : 'Approve estimate'}</span>
               </button>
             )}
             <ProgressTracker status={selected.status} />
@@ -1229,8 +1259,8 @@ function InventoryView({ state, adjustInventory, addInventoryPart, reset, canMan
                 <div><strong>{inventoryPart.name}</strong><span>{inventoryPart.sku} · {inventoryPart.compatibleWith.join(', ')}</span></div>
                 <div className="inventory-meta"><span className={lowStock ? 'stock-low' : 'stock-ok'}>{inventoryPart.quantity} in stock</span><small>Reorder at {inventoryPart.reorderLevel} · Cost {currencyFormatter.format(inventoryPart.unitCost)}</small></div>
                 <div className="stepper">
-                  <button type="button" aria-label={`Decrease ${inventoryPart.name} quantity`} onClick={() => adjustInventory(inventoryPart.sku, -1)}>-</button>
-                  <button type="button" aria-label={`Increase ${inventoryPart.name} quantity`} onClick={() => adjustInventory(inventoryPart.sku, 1)}>+</button>
+                  <button type="button" aria-label={`Decrease ${inventoryPart.name} quantity`} onClick={() => adjustInventory(inventoryPart.sku, -1)}><Minus aria-hidden="true" size={16} /></button>
+                  <button type="button" aria-label={`Increase ${inventoryPart.name} quantity`} onClick={() => adjustInventory(inventoryPart.sku, 1)}><Plus aria-hidden="true" size={16} /></button>
                 </div>
               </article>
             );
@@ -1262,7 +1292,7 @@ function InvoiceList({
 
   return (
     <div className="creator-list-panel">
-      <div className="list-header"><h3>Invoice register</h3><div className="card-actions"><span>{invoices.length} records</span><button type="button" className="secondary-dark-button" onClick={exportCsv}>Export CSV</button></div></div>
+      <div className="list-header"><h3>Invoice register</h3><div className="card-actions"><span>{invoices.length} records</span><button type="button" className="secondary-dark-button icon-button" onClick={exportCsv}><Download aria-hidden="true" size={16} /><span>Export CSV</span></button></div></div>
       {invoices.map((invoice) => (
         <InvoiceRow key={invoice.id} invoice={invoice} updateInvoiceStatus={updateInvoiceStatus} recordPayment={recordPayment} />
       ))}
@@ -1312,8 +1342,8 @@ function InvoiceRow({
             {paymentMethods.map((option) => <option key={option}>{option}</option>)}
           </select>
           <input aria-label="Payment reference (optional)" placeholder="Reference (optional)" value={reference} onChange={(event) => setReference(event.target.value)} />
-          <button type="button" className="primary-button" onClick={() => void handleRecordPayment()} disabled={isRecording}>{isRecording ? 'Recording…' : 'Record payment'}</button>
-          <button type="button" className="danger-button" onClick={() => updateInvoiceStatus(invoice.id, 'Void')} disabled={isRecording}>Void</button>
+          <button type="button" className="primary-button icon-button" onClick={() => void handleRecordPayment()} disabled={isRecording}><CreditCard aria-hidden="true" size={16} /><span>{isRecording ? 'Recording…' : 'Record payment'}</span></button>
+          <button type="button" className="danger-button icon-button" onClick={() => updateInvoiceStatus(invoice.id, 'Void')} disabled={isRecording}><XCircle aria-hidden="true" size={16} /><span>Void</span></button>
         </div>
       ) : (
         <select aria-label="Invoice status" value={invoice.status} onChange={(event) => updateInvoiceStatus(invoice.id, event.target.value as InvoiceStatus)}>
@@ -1420,7 +1450,7 @@ function ReportBuilder({
           </div>
           <div className="card-actions">
             <button type="button" className="primary-button" onClick={saveReport}>Save report</button>
-            <button type="button" className="secondary-dark-button" onClick={() => downloadRowsAsCsv(`${entity}-report.csv`, columns, rows)}>Export CSV</button>
+            <button type="button" className="secondary-dark-button icon-button" onClick={() => downloadRowsAsCsv(`${entity}-report.csv`, columns, rows)}><Download aria-hidden="true" size={16} /><span>Export CSV</span></button>
           </div>
         </div>
       </CreatorFormCard>
@@ -1630,7 +1660,7 @@ function ThemeToggle({ theme, onToggle }: { theme: ThemeMode; onToggle: () => vo
 
   return (
     <button className="theme-toggle" type="button" onClick={onToggle} aria-label={`Switch to ${nextTheme} mode`}>
-      <span aria-hidden="true">{theme === 'light' ? '🌙' : '☀️'}</span>
+      {theme === 'light' ? <Moon aria-hidden="true" size={16} /> : <Sun aria-hidden="true" size={16} />}
       <span className="toggle-label">{theme === 'light' ? 'Dark' : 'Light'} mode</span>
     </button>
   );

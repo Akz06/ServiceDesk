@@ -23,6 +23,7 @@
   "dependencies": {
     "cors": "latest",
     "express": "latest",
+    "lucide-react": "^1.47.0",
     "pg": "latest",
     "react": "latest",
     "react-dom": "latest",
