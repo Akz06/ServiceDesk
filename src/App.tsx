@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import {
   Bell,
@@ -13,7 +13,10 @@ import {
   FileBarChart2,
   LayoutDashboard,
   LogOut,
+  Mail,
   Menu,
+  MessageCircle,
+  MessageSquare,
   Minus,
   Moon,
   Plus,
@@ -164,7 +167,6 @@ const masterNav: NavItem[] = [
   { id: 'parts', label: 'Parts', modules: ['admin', 'technician'], icon: Cog },
   { id: 'invoices', label: 'Invoices', modules: ['admin'], icon: Receipt },
   { id: 'catalog', label: 'Catalog', modules: ['admin'], icon: BookOpen },
-  { id: 'notifications', label: 'Notifications', modules: ['admin'], icon: Bell },
   { id: 'reports', label: 'Export Reports', modules: ['admin'], icon: FileBarChart2 },
   { id: 'repairs', label: 'My Repairs', modules: ['admin', 'customer'], icon: Smartphone },
 ];
@@ -178,7 +180,6 @@ const sectionMeta: Record<string, SectionMeta> = {
   parts: { title: 'Parts', subtitle: 'Read-only view of spare-parts stock.' },
   invoices: { title: 'Invoices', subtitle: 'Create invoices, record payments, and export for accounting.' },
   catalog: { title: 'Service catalog', subtitle: 'Browse repair categories, common issues, and starting prices.' },
-  notifications: { title: 'Notifications', subtitle: 'Outbound customer notification log (mock SMS/email).' },
   reports: { title: 'Export Reports', subtitle: 'Build, save, and export custom reports.' },
   repairs: { title: 'My Repairs', subtitle: 'Track repair progress, updates, and approve shared estimates.' },
 };
@@ -407,7 +408,11 @@ function Workspace({
     <main className="creator-shell">
       {mobileNavOpen && <div className="nav-overlay" onClick={() => setMobileNavOpen(false)} aria-hidden="true" />}
       <aside className={mobileNavOpen ? 'creator-sidebar nav-open' : 'creator-sidebar'}>
-        <div className="brand app-brand"><div className="brand-mark">SD</div><span>{appName}</span></div>
+        <div className="brand app-brand">
+          <div className="brand-mark">SD</div>
+          <span>{appName}</span>
+          {user.moduleAccess.includes('admin') && <NotificationBell notifications={state.notifications} />}
+        </div>
         <div className="sidebar-section">
           <span className="sidebar-label">{user.role} sections</span>
           <SidebarNav items={navItems} activeView={activeView} onNavigate={navigate} />
@@ -592,8 +597,6 @@ function WorkspaceContent(
       {activeView === 'catalog' && (
         <ServiceCatalog selectedDeviceType={selectedDeviceType} setSelectedDeviceType={setSelectedDeviceType} visibleCategories={visibleCategories} />
       )}
-
-      {activeView === 'notifications' && <NotificationLog notifications={state.notifications} />}
 
       {activeView === 'reports' && (
         <ReportBuilder
@@ -1354,22 +1357,94 @@ function InvoiceRow({
   );
 }
 
-function NotificationLog({ notifications }: { notifications: DeskActions['state']['notifications'] }) {
-  const channelIcon: Record<string, string> = { sms: '💬', whatsapp: '🟢', email: '✉️' };
+const notificationChannelIcon: Record<string, LucideIcon> = { sms: MessageCircle, whatsapp: MessageSquare, email: Mail };
+
+const NOTIFICATION_POPOVER_WIDTH = 320;
+const NOTIFICATION_POPOVER_MARGIN = 12;
+
+function NotificationBell({ notifications }: { notifications: DeskActions['state']['notifications'] }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [popoverOffset, setPopoverOffset] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return undefined;
+    }
+    const closeOnOutsideInteraction = (event: MouseEvent | KeyboardEvent) => {
+      if (event instanceof KeyboardEvent) {
+        if (event.key === 'Escape') {
+          setIsOpen(false);
+        }
+        return;
+      }
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', closeOnOutsideInteraction);
+    document.addEventListener('keydown', closeOnOutsideInteraction);
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsideInteraction);
+      document.removeEventListener('keydown', closeOnOutsideInteraction);
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return undefined;
+    }
+    const updatePosition = () => {
+      if (!containerRef.current) {
+        return;
+      }
+      const rect = containerRef.current.getBoundingClientRect();
+      const effectiveWidth = Math.min(NOTIFICATION_POPOVER_WIDTH, window.innerWidth - NOTIFICATION_POPOVER_MARGIN * 2);
+      const idealViewportLeft = rect.right - effectiveWidth;
+      const clampedViewportLeft = Math.min(
+        Math.max(idealViewportLeft, NOTIFICATION_POPOVER_MARGIN),
+        window.innerWidth - effectiveWidth - NOTIFICATION_POPOVER_MARGIN,
+      );
+      setPopoverOffset(clampedViewportLeft - rect.left);
+    };
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    return () => window.removeEventListener('resize', updatePosition);
+  }, [isOpen]);
 
   return (
-    <div className="creator-panel">
-      <div className="creator-panel-header"><div><p className="eyebrow">Outbound customer notifications</p><h2>Notification log</h2></div></div>
-      <div className="creator-list-panel">
-        <ListHeader title="Sent messages" count={notifications.length} />
-        {notifications.length ? notifications.map((notification) => (
-          <div className="record-row notification-row" key={notification.id}>
-            <span className="channel-badge">{channelIcon[notification.channel] ?? '🔔'} {notification.channel}</span>
-            <div><strong>{notification.recipient}</strong><span>{notification.message}</span></div>
-            <span className="record-meta">{notification.createdAt}</span>
+    <div className="notification-bell" ref={containerRef}>
+      <button
+        type="button"
+        className="notification-bell-toggle"
+        aria-haspopup="true"
+        aria-expanded={isOpen}
+        aria-label={`Notifications${notifications.length ? ` (${notifications.length} unread)` : ''}`}
+        onClick={() => setIsOpen((open) => !open)}
+      >
+        <Bell aria-hidden="true" size={18} />
+        {notifications.length > 0 && <span className="notification-badge" aria-hidden="true">{notifications.length > 99 ? '99+' : notifications.length}</span>}
+      </button>
+      {isOpen && (
+        <div className="notification-popover" role="dialog" aria-label="Notifications" style={{ left: `${popoverOffset}px` }}>
+          <div className="notification-popover-header"><h3>Notifications</h3><span>{notifications.length} sent</span></div>
+          <div className="notification-popover-list">
+            {notifications.length ? notifications.map((notification) => {
+              const Icon = notificationChannelIcon[notification.channel] ?? Bell;
+              return (
+                <div className="notification-item" key={notification.id}>
+                  <Icon aria-hidden="true" size={16} className="notification-item-icon" />
+                  <div className="notification-item-body">
+                    <strong>{notification.recipient}</strong>
+                    <span>{notification.message}</span>
+                    <small>{notification.createdAt}</small>
+                  </div>
+                </div>
+              );
+            }) : <EmptyState title="No notifications yet" body="Status changes on a work item automatically text the customer (mock provider — no SMS account is connected yet)." />}
           </div>
-        )) : <EmptyState title="No notifications yet" body="Status changes on a work item automatically text the customer (mock provider — no SMS account is connected yet)." />}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
