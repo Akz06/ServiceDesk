@@ -150,12 +150,17 @@ const masterNav: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', modules: ['admin', 'agent', 'technician'], icon: LayoutDashboard },
   { id: 'people', label: 'People', modules: ['admin'], icon: UsersIcon, children: [
     { id: 'users', label: 'Users', modules: ['admin'] },
+    { id: 'new-user', label: 'New User', modules: ['admin'] },
     { id: 'customers', label: 'Customers', modules: ['admin'] },
     { id: 'technicians', label: 'Technicians', modules: ['admin'] },
   ] },
-  { id: 'inventory', label: 'Inventory', modules: ['admin', 'agent'], icon: Boxes },
+  { id: 'inventory', label: 'Inventory', modules: ['admin', 'agent'], icon: Boxes, children: [
+    { id: 'inventory-report', label: 'Inventory', modules: ['admin', 'agent'] },
+    { id: 'inventory-new', label: 'New Part', modules: ['admin', 'agent'] },
+  ] },
   { id: 'workitems', label: 'Work Items', modules: ['admin', 'agent'], icon: Wrench, children: [
     { id: 'wi-all', label: 'All Work Items', modules: ['admin', 'agent'] },
+    { id: 'wi-new', label: 'New Work Item', modules: ['admin', 'agent'] },
     { id: 'wi-board', label: 'Board', modules: ['admin', 'agent'] },
     { id: 'wi-walkins', label: 'Walk-ins', modules: ['admin', 'agent'] },
   ] },
@@ -165,7 +170,10 @@ const masterNav: NavItem[] = [
     { id: 'myjobs-repair', label: 'In Repair', modules: ['admin', 'technician'] },
   ] },
   { id: 'parts', label: 'Parts', modules: ['admin', 'technician'], icon: Cog },
-  { id: 'invoices', label: 'Invoices', modules: ['admin'], icon: Receipt },
+  { id: 'invoices', label: 'Invoices', modules: ['admin'], icon: Receipt, children: [
+    { id: 'invoices-report', label: 'Invoices', modules: ['admin'] },
+    { id: 'invoices-new', label: 'New Invoice', modules: ['admin'] },
+  ] },
   { id: 'catalog', label: 'Catalog', modules: ['admin'], icon: BookOpen },
   { id: 'reports', label: 'Export Reports', modules: ['admin'], icon: FileBarChart2 },
   { id: 'repairs', label: 'My Repairs', modules: ['admin', 'customer'], icon: Smartphone },
@@ -197,8 +205,13 @@ const firstLeafId = (items: NavItem[]): string => (items[0].children ? firstLeaf
 const leafIdsOf = (items: NavItem[]): string[] => items.flatMap((item) => (item.children ? leafIdsOf(item.children) : [item.id]));
 
 const viewFromHash = (navItems: NavItem[]): string | null => {
-  const hashId = window.location.hash.replace(/^#/, '');
+  const [hashId] = window.location.hash.replace(/^#/, '').split(':');
   return hashId && leafIdsOf(navItems).includes(hashId) ? hashId : null;
+};
+
+const recordIdFromHash = (): string | null => {
+  const [, recordId] = window.location.hash.replace(/^#/, '').split(':');
+  return recordId || null;
 };
 
 const groupIdFor = (activeView: string): string => {
@@ -371,15 +384,20 @@ function Workspace({
 
   const navItems = useMemo(() => visibleNavFor(user.moduleAccess), [user.moduleAccess]);
   const [activeView, setActiveView] = useState<string>(() => viewFromHash(navItems) ?? firstLeafId(navItems));
+  const [focusRecordId, setFocusRecordId] = useState<string | null>(() => recordIdFromHash());
 
   useEffect(() => {
-    window.history.replaceState(null, '', `#${activeView}`);
-  }, [activeView]);
+    window.history.replaceState(null, '', `#${activeView}${focusRecordId ? `:${focusRecordId}` : ''}`);
+  }, [activeView, focusRecordId]);
 
-  const navigate = (id: string) => {
+  const navigate = (id: string, recordId?: string) => {
     setActiveView(id);
+    setFocusRecordId(recordId ?? null);
     setMobileNavOpen(false);
   };
+
+  const availableLeafIds = useMemo(() => leafIdsOf(navItems), [navItems]);
+  const findNavTarget = (candidates: string[]): string | undefined => candidates.find((id) => availableLeafIds.includes(id));
 
   useEffect(() => {
     if (!mobileNavOpen) {
@@ -444,10 +462,30 @@ function Workspace({
 
         {user.profile !== 'customer' && isDashboard && (
           <section className="creator-kpi-row" aria-label="Operational metrics">
-            <MetricCard label="Active WIs" value={String(metrics.activeWorkItems)} helper="Open repair jobs" />
-            <MetricCard label="Awaiting approval" value={String(metrics.awaitingApproval)} helper="Estimate decisions" />
-            <MetricCard label="Stock alerts" value={String(metrics.lowStockParts)} helper="Low inventory SKUs" />
-            <MetricCard label="Paid revenue" value={currencyFormatter.format(metrics.paidRevenue)} helper={`${currencyFormatter.format(metrics.invoicedRevenue)} invoiced`} />
+            <MetricCard
+              label="Active WIs"
+              value={String(metrics.activeWorkItems)}
+              helper="Open repair jobs"
+              onClick={findNavTarget(['wi-all', 'myjobs-assigned']) ? () => navigate(findNavTarget(['wi-all', 'myjobs-assigned'])!) : undefined}
+            />
+            <MetricCard
+              label="Awaiting approval"
+              value={String(metrics.awaitingApproval)}
+              helper="Estimate decisions"
+              onClick={findNavTarget(['wi-all', 'myjobs-estimates']) ? () => navigate(findNavTarget(['wi-all', 'myjobs-estimates'])!) : undefined}
+            />
+            <MetricCard
+              label="Stock alerts"
+              value={String(metrics.lowStockParts)}
+              helper="Low inventory SKUs"
+              onClick={findNavTarget(['inventory', 'parts']) ? () => navigate(findNavTarget(['inventory', 'parts'])!) : undefined}
+            />
+            <MetricCard
+              label="Paid revenue"
+              value={currencyFormatter.format(metrics.paidRevenue)}
+              helper={`${currencyFormatter.format(metrics.invoicedRevenue)} invoiced`}
+              onClick={findNavTarget(['invoices']) ? () => navigate(findNavTarget(['invoices'])!) : undefined}
+            />
           </section>
         )}
 
@@ -462,6 +500,8 @@ function Workspace({
             selectedTechnicianId={selectedTechnicianId}
             selectedCustomerId={effectiveCustomerId}
             pushToast={toast.push}
+            navigate={navigate}
+            focusRecordId={focusRecordId}
           />
         </section>
       </section>
@@ -530,6 +570,8 @@ function WorkspaceContent(
     selectedTechnicianId: string;
     selectedCustomerId: string;
     pushToast: (message: ReactNode, tone?: ToastTone) => void;
+    navigate: (id: string, recordId?: string) => void;
+    focusRecordId: string | null;
   },
 ) {
   const {
@@ -553,6 +595,8 @@ function WorkspaceContent(
     deleteSavedReport,
     approveEstimate,
     pushToast,
+    navigate,
+    focusRecordId,
   } = props;
   const [selectedDeviceType, setSelectedDeviceType] = useState<DeviceType | 'All'>('All');
 
@@ -563,25 +607,31 @@ function WorkspaceContent(
 
   return (
     <ModuleFrame title={title} subtitle={subtitle} toolbar={toolbar}>
-      {activeView === 'dashboard' && <DashboardPanel profile={currentUser.profile} state={state} selectedTechnicianId={selectedTechnicianId} />}
+      {activeView === 'dashboard' && (
+        <DashboardPanel profile={currentUser.profile} state={state} selectedTechnicianId={selectedTechnicianId} navigate={navigate} moduleAccess={currentUser.moduleAccess} />
+      )}
 
-      {activeView === 'users' && <UsersPanel currentUser={currentUser} pushToast={pushToast} />}
+      {activeView === 'new-user' && <NewUserForm currentUser={currentUser} pushToast={pushToast} />}
+      {activeView === 'users' && <UsersReport currentUser={currentUser} pushToast={pushToast} />}
       {activeView === 'customers' && <CustomersPanel state={state} pushToast={pushToast} />}
       {activeView === 'technicians' && <TechniciansPanel state={state} />}
 
-      {activeView === 'inventory' && <InventoryView {...props} canManage canReset={currentUser.profile === 'admin'} pushToast={pushToast} />}
+      {activeView === 'inventory-new' && <NewPartForm addInventoryPart={props.addInventoryPart} reset={props.reset} canReset={currentUser.profile === 'admin'} pushToast={pushToast} />}
+      {activeView === 'inventory-report' && <InventoryReport state={state} adjustInventory={adjustInventory} />}
 
       {activeView === 'wi-board' && <KanbanBoard workItems={state.workItems} updateWorkItem={updateWorkItem} pushToast={pushToast} />}
+      {activeView === 'wi-new' && <NewWorkItemForm state={state} createWorkItem={createWorkItem} pushToast={pushToast} navigate={navigate} />}
       {(activeView === 'wi-all' || activeView === 'wi-walkins') && (
         <WorkItemsSection
           subView={activeView === 'wi-walkins' ? 'walkins' : 'all'}
           actorRole={currentUser.role}
           state={state}
-          createWorkItem={createWorkItem}
+          initialSelectedId={focusRecordId}
           updateWorkItem={updateWorkItem}
           cancelWorkItem={cancelWorkItem}
           notifyCustomerNow={notifyCustomerNow}
           pushToast={pushToast}
+          navigate={navigate}
         />
       )}
 
@@ -590,8 +640,9 @@ function WorkspaceContent(
       )}
       {activeView === 'parts' && <InventoryView {...props} canManage={false} canReset={false} pushToast={pushToast} />}
 
-      {activeView === 'invoices' && (
-        <InvoicesPanel state={state} createInvoice={createInvoice} updateInvoiceStatus={updateInvoiceStatus} recordInvoicePayment={recordInvoicePayment} pushToast={pushToast} />
+      {activeView === 'invoices-new' && <NewInvoiceForm state={state} createInvoice={createInvoice} pushToast={pushToast} navigate={navigate} />}
+      {activeView === 'invoices-report' && (
+        <InvoicesReport state={state} updateInvoiceStatus={updateInvoiceStatus} recordInvoicePayment={recordInvoicePayment} pushToast={pushToast} />
       )}
 
       {activeView === 'catalog' && (
@@ -615,26 +666,41 @@ function WorkspaceContent(
   );
 }
 
-function DashboardPanel({ profile, state, selectedTechnicianId }: { profile: AuthProfile; state: DeskActions['state']; selectedTechnicianId: string }) {
+function DashboardPanel({
+  profile,
+  state,
+  selectedTechnicianId,
+  navigate,
+  moduleAccess,
+}: {
+  profile: AuthProfile;
+  state: DeskActions['state'];
+  selectedTechnicianId: string;
+  navigate: (id: string, recordId?: string) => void;
+  moduleAccess: ModuleId[];
+}) {
   const metrics = getMetrics(state);
+  const stockSectionId = moduleAccess.includes('admin') || moduleAccess.includes('agent') ? 'inventory' : 'parts';
 
   if (profile === 'admin') {
     return (
       <div className="creator-page">
         <div className="creator-report-grid">
-          <MetricCard label="Customers" value={String(state.customers.length)} helper="Customer master records" />
-          <MetricCard label="Technicians" value={String(technicians.length)} helper="Repair bench users" />
-          <MetricCard label="Invoices" value={String(state.invoices.length)} helper={`${currencyFormatter.format(metrics.invoicedRevenue)} total`} />
-          <MetricCard label="Parts" value={String(state.inventoryParts.length)} helper="Inventory SKUs" />
+          <MetricCard label="Customers" value={String(state.customers.length)} helper="Customer master records" onClick={() => navigate('customers')} />
+          <MetricCard label="Technicians" value={String(technicians.length)} helper="Repair bench users" onClick={() => navigate('technicians')} />
+          <MetricCard label="Invoices" value={String(state.invoices.length)} helper={`${currencyFormatter.format(metrics.invoicedRevenue)} total`} onClick={() => navigate('invoices')} />
+          <MetricCard label="Parts" value={String(state.inventoryParts.length)} helper="Inventory SKUs" onClick={() => navigate('parts')} />
         </div>
         <div className="creator-record-grid">
           <RecordTable
             title="Recent work items"
             rows={state.workItems.slice(0, 6).map((item) => ({ id: item.id, primary: item.deviceModel, secondary: `${item.customerName} · ${item.status}`, meta: currencyFormatter.format(item.estimatedPrice) }))}
+            onRowClick={(id) => navigate('wi-all', id)}
           />
           <RecordTable
             title="Low stock alerts"
             rows={state.inventoryParts.filter((part) => part.quantity <= part.reorderLevel).map((part) => ({ id: part.sku, primary: part.name, secondary: `${part.quantity} available · reorder at ${part.reorderLevel}`, meta: currencyFormatter.format(part.unitCost) }))}
+            onRowClick={() => navigate(stockSectionId)}
           />
         </div>
       </div>
@@ -643,7 +709,7 @@ function DashboardPanel({ profile, state, selectedTechnicianId }: { profile: Aut
 
   if (profile === 'technician') {
     const assignedItems = state.workItems.filter((item) => item.assignedTechnicianId === selectedTechnicianId && item.status !== 'Cancelled');
-    return <RecordTable title="My assigned jobs" rows={assignedItems.map(workItemToRow)} />;
+    return <RecordTable title="My assigned jobs" rows={assignedItems.map(workItemToRow)} onRowClick={() => navigate('myjobs-assigned')} />;
   }
 
   return (
@@ -651,40 +717,57 @@ function DashboardPanel({ profile, state, selectedTechnicianId }: { profile: Aut
       <RecordTable
         title="Recent work items"
         rows={state.workItems.slice(0, 6).map((item) => ({ id: item.id, primary: item.deviceModel, secondary: `${item.customerName} · ${item.status}`, meta: currencyFormatter.format(item.estimatedPrice) }))}
+        onRowClick={(id) => navigate('wi-all', id)}
       />
       <RecordTable
         title="Low stock alerts"
         rows={state.inventoryParts.filter((part) => part.quantity <= part.reorderLevel).map((part) => ({ id: part.sku, primary: part.name, secondary: `${part.quantity} available · reorder at ${part.reorderLevel}`, meta: currencyFormatter.format(part.unitCost) }))}
+        onRowClick={() => navigate(stockSectionId)}
       />
     </div>
   );
 }
 
-function UsersPanel({ currentUser, pushToast }: { currentUser: AuthUser; pushToast: (message: ReactNode, tone?: ToastTone) => void }) {
-  const localDemoManagedUsers: ManagedUser[] = [
-    { ...currentUser, active: true, createdAt: 'Local demo' },
-    { id: 'user-agent', name: 'Agent User', email: 'agent@servicedesk.local', role: 'Agent', profile: 'agent', moduleAccess: ['agent'], active: true, createdAt: 'Local demo' },
-    { id: 'user-technician', name: 'Technician User', email: 'tech@servicedesk.local', role: 'Technician', profile: 'technician', moduleAccess: ['technician'], active: true, createdAt: 'Local demo' },
-    { id: 'user-customer', name: 'Customer User', email: 'customer@servicedesk.local', role: 'Customer', profile: 'customer', moduleAccess: ['customer'], active: true, createdAt: 'Local demo' },
-  ];
-  const [users, setUsers] = useState<ManagedUser[]>(() => (isApiPersistenceEnabled ? [] : localDemoManagedUsers));
+const MANAGED_USERS_STORAGE_KEY = 'service-desk-managed-users';
+
+const seedManagedUsers = (currentUser: AuthUser): ManagedUser[] => [
+  { ...currentUser, active: true, createdAt: 'Local demo' },
+  { id: 'user-agent', name: 'Agent User', email: 'agent@servicedesk.local', role: 'Agent', profile: 'agent', moduleAccess: ['agent'], active: true, createdAt: 'Local demo' },
+  { id: 'user-technician', name: 'Technician User', email: 'tech@servicedesk.local', role: 'Technician', profile: 'technician', moduleAccess: ['technician'], active: true, createdAt: 'Local demo' },
+  { id: 'user-customer', name: 'Customer User', email: 'customer@servicedesk.local', role: 'Customer', profile: 'customer', moduleAccess: ['customer'], active: true, createdAt: 'Local demo' },
+];
+
+const loadLocalManagedUsers = (currentUser: AuthUser): ManagedUser[] => {
+  try {
+    const raw = localStorage.getItem(MANAGED_USERS_STORAGE_KEY);
+    if (raw) {
+      return JSON.parse(raw) as ManagedUser[];
+    }
+  } catch {
+    // Ignore malformed storage and fall back to the seed below.
+  }
+  return seedManagedUsers(currentUser);
+};
+
+const saveLocalManagedUsers = (users: ManagedUser[]) => {
+  try {
+    localStorage.setItem(MANAGED_USERS_STORAGE_KEY, JSON.stringify(users));
+  } catch {
+    // Ignore write failures (e.g. private browsing storage limits).
+  }
+};
+
+function NewUserForm({ currentUser, pushToast }: { currentUser: AuthUser; pushToast: (message: ReactNode, tone?: ToastTone) => void }) {
   const [userDraft, setUserDraft] = useState<UserDraft>(blankUser);
   const [userError, setUserError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  useEffect(() => {
-    if (!isApiPersistenceEnabled) {
-      return;
-    }
-
-    void userApi.list().then((response) => setUsers(response.users)).catch((error: unknown) => setUserError(error instanceof Error ? error.message : 'Unable to load users.'));
-  }, []);
 
   const submitUser = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setUserError(null);
     if (!isApiPersistenceEnabled) {
-      setUsers((current) => [{ id: `local-${Date.now()}`, role: profileToRole(userDraft.profile), moduleAccess: profileToModules(userDraft.profile), createdAt: 'Local demo', ...userDraft }, ...current]);
+      const created: ManagedUser = { id: `local-${Date.now()}`, role: profileToRole(userDraft.profile), moduleAccess: profileToModules(userDraft.profile), createdAt: 'Local demo', ...userDraft };
+      saveLocalManagedUsers([created, ...loadLocalManagedUsers(currentUser)]);
       setUserDraft(blankUser);
       pushToast(`Created user ${userDraft.name || userDraft.email}.`);
       return;
@@ -692,8 +775,7 @@ function UsersPanel({ currentUser, pushToast }: { currentUser: AuthUser; pushToa
 
     setIsSubmitting(true);
     try {
-      const response = await userApi.create(userDraft);
-      setUsers(response.users);
+      await userApi.create(userDraft);
       setUserDraft(blankUser);
       pushToast(`Created user ${userDraft.name || userDraft.email}.`);
     } catch (error) {
@@ -705,13 +787,41 @@ function UsersPanel({ currentUser, pushToast }: { currentUser: AuthUser; pushToa
     }
   };
 
+  return (
+    <CreatorFormCard title="Create user" eyebrow="User form">
+      <form className="creator-form" onSubmit={(event) => void submitUser(event)}>
+        <label>Name<input required value={userDraft.name} onChange={(event) => setUserDraft({ ...userDraft, name: event.target.value })} placeholder="New staff or customer" /></label>
+        <label>Email<input required type="email" value={userDraft.email} onChange={(event) => setUserDraft({ ...userDraft, email: event.target.value })} placeholder="name@example.com" /></label>
+        <div className="form-row"><label>Profile<select value={userDraft.profile} onChange={(event) => setUserDraft({ ...userDraft, profile: event.target.value as AuthProfile })}>{authProfiles.map((profile) => <option key={profile} value={profile}>{profile}</option>)}</select></label><label>Password<input required type="password" minLength={8} value={userDraft.password} onChange={(event) => setUserDraft({ ...userDraft, password: event.target.value })} placeholder="Minimum 8 chars" /></label></div>
+        <label className="inline-check"><input type="checkbox" checked={userDraft.active} onChange={(event) => setUserDraft({ ...userDraft, active: event.target.checked })} /> Active user</label>
+        {userError && <div className="login-error">{userError}</div>}
+        <button className="primary-button icon-button" type="submit" disabled={isSubmitting}><UserPlus aria-hidden="true" size={16} /><span>{isSubmitting ? 'Creating…' : 'Create user'}</span></button>
+      </form>
+    </CreatorFormCard>
+  );
+}
+
+function UsersReport({ currentUser, pushToast }: { currentUser: AuthUser; pushToast: (message: ReactNode, tone?: ToastTone) => void }) {
+  const [users, setUsers] = useState<ManagedUser[]>(() => (isApiPersistenceEnabled ? [] : loadLocalManagedUsers(currentUser)));
+  const [userError, setUserError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isApiPersistenceEnabled) {
+      return;
+    }
+
+    void userApi.list().then((response) => setUsers(response.users)).catch((error: unknown) => setUserError(error instanceof Error ? error.message : 'Unable to load users.'));
+  }, []);
+
   const toggleUser = async (managedUser: ManagedUser) => {
     if (managedUser.active && !window.confirm(`Deactivate ${managedUser.name}? They will immediately lose access to their module.`)) {
       return;
     }
 
     if (!isApiPersistenceEnabled) {
-      setUsers((current) => current.map((item) => (item.id === managedUser.id ? { ...item, active: !item.active } : item)));
+      const next = users.map((item) => (item.id === managedUser.id ? { ...item, active: !item.active } : item));
+      setUsers(next);
+      saveLocalManagedUsers(next);
       pushToast(`${managedUser.active ? 'Deactivated' : 'Activated'} ${managedUser.name}.`);
       return;
     }
@@ -728,28 +838,17 @@ function UsersPanel({ currentUser, pushToast }: { currentUser: AuthUser; pushToa
   };
 
   return (
-    <CreatorSplit>
-      <CreatorFormCard title="Create user" eyebrow="User form">
-        <form className="creator-form" onSubmit={(event) => void submitUser(event)}>
-          <label>Name<input required value={userDraft.name} onChange={(event) => setUserDraft({ ...userDraft, name: event.target.value })} placeholder="New staff or customer" /></label>
-          <label>Email<input required type="email" value={userDraft.email} onChange={(event) => setUserDraft({ ...userDraft, email: event.target.value })} placeholder="name@example.com" /></label>
-          <div className="form-row"><label>Profile<select value={userDraft.profile} onChange={(event) => setUserDraft({ ...userDraft, profile: event.target.value as AuthProfile })}>{authProfiles.map((profile) => <option key={profile} value={profile}>{profile}</option>)}</select></label><label>Password<input required type="password" minLength={8} value={userDraft.password} onChange={(event) => setUserDraft({ ...userDraft, password: event.target.value })} placeholder="Minimum 8 chars" /></label></div>
-          <label className="inline-check"><input type="checkbox" checked={userDraft.active} onChange={(event) => setUserDraft({ ...userDraft, active: event.target.checked })} /> Active user</label>
-          {userError && <div className="login-error">{userError}</div>}
-          <button className="primary-button icon-button" type="submit" disabled={isSubmitting}><UserPlus aria-hidden="true" size={16} /><span>{isSubmitting ? 'Creating…' : 'Create user'}</span></button>
-        </form>
-      </CreatorFormCard>
-      <div className="creator-list-panel">
-        <ListHeader title="Users report" count={users.length} />
-        {users.map((managedUser) => (
-          <div className="record-row" key={managedUser.id}>
-            <div><strong>{managedUser.name}</strong><span>{managedUser.email}</span></div>
-            <span className="pill">{managedUser.profile}</span>
-            <button className={managedUser.active ? 'danger-button' : 'secondary-dark-button'} type="button" onClick={() => void toggleUser(managedUser)} disabled={managedUser.id === currentUser.id}>{managedUser.active ? 'Deactivate' : 'Activate'}</button>
-          </div>
-        ))}
-      </div>
-    </CreatorSplit>
+    <div className="creator-list-panel">
+      <ListHeader title="Users report" count={users.length} />
+      {userError && <div className="login-error">{userError}</div>}
+      {users.map((managedUser) => (
+        <div className="record-row" key={managedUser.id}>
+          <div><strong>{managedUser.name}</strong><span>{managedUser.email}</span></div>
+          <span className="pill">{managedUser.profile}</span>
+          <button className={managedUser.active ? 'danger-button' : 'secondary-dark-button'} type="button" onClick={() => void toggleUser(managedUser)} disabled={managedUser.id === currentUser.id}>{managedUser.active ? 'Deactivate' : 'Activate'}</button>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -777,18 +876,16 @@ function TechniciansPanel({ state }: { state: DeskActions['state'] }) {
   );
 }
 
-function InvoicesPanel({
+function NewInvoiceForm({
   state,
   createInvoice,
-  updateInvoiceStatus,
-  recordInvoicePayment,
   pushToast,
+  navigate,
 }: {
   state: DeskActions['state'];
   createInvoice: DeskActions['createInvoice'];
-  updateInvoiceStatus: DeskActions['updateInvoiceStatus'];
-  recordInvoicePayment: DeskActions['recordInvoicePayment'];
   pushToast: (message: ReactNode, tone?: ToastTone) => void;
+  navigate: (id: string) => void;
 }) {
   const [invoiceDraft, setInvoiceDraft] = useState<InvoiceDraft>(() => blankInvoiceDraft(state.workItems[0]));
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -800,13 +897,45 @@ function InvoicesPanel({
     setIsSubmitting(true);
     try {
       await createInvoice(invoiceDraft);
-      setInvoiceDraft(blankInvoiceDraft(state.workItems[0]));
       pushToast(`Invoice issued for ${currencyFormatter.format(invoiceTotal)}.`);
+      setInvoiceDraft(blankInvoiceDraft(state.workItems[0]));
+      navigate('invoices-report');
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  return (
+    <CreatorFormCard title="Create invoice" eyebrow="Invoice form">
+      <form className="creator-form" onSubmit={(event) => void submitInvoice(event)}>
+        <label>Work item<select value={invoiceDraft.workItemId} onChange={(event) => {
+          const item = state.workItems.find((workItem) => workItem.id === event.target.value);
+          setInvoiceDraft(blankInvoiceDraft(item));
+        }}>{state.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} · {item.customerName} · {item.deviceModel}</option>)}</select></label>
+        <div className="form-row">
+          <label>Labor<input type="number" min="0" value={invoiceDraft.laborAmount} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, laborAmount: Number(event.target.value) })} /></label>
+          <label>Parts<input type="number" min="0" value={invoiceDraft.partsAmount} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, partsAmount: Number(event.target.value) })} /></label>
+        </div>
+        <label>Diagnostic fee<input type="number" min="0" value={invoiceDraft.diagnosticFee} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, diagnosticFee: Number(event.target.value) })} /></label>
+        <p className="cost-breakdown"><span>Total <strong>{currencyFormatter.format(invoiceTotal)}</strong></span></p>
+        <label>Notes<textarea value={invoiceDraft.notes} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, notes: event.target.value })} placeholder={selectedWorkItem?.requiredChanges ?? 'Invoice notes'} /></label>
+        <button className="primary-button icon-button" type="submit" disabled={isSubmitting}><Receipt aria-hidden="true" size={16} /><span>{isSubmitting ? 'Issuing…' : 'Issue invoice'}</span></button>
+      </form>
+    </CreatorFormCard>
+  );
+}
+
+function InvoicesReport({
+  state,
+  updateInvoiceStatus,
+  recordInvoicePayment,
+  pushToast,
+}: {
+  state: DeskActions['state'];
+  updateInvoiceStatus: DeskActions['updateInvoiceStatus'];
+  recordInvoicePayment: DeskActions['recordInvoicePayment'];
+  pushToast: (message: ReactNode, tone?: ToastTone) => void;
+}) {
   const changeInvoiceStatus = (invoiceId: string, status: InvoiceStatus) => {
     if (status === 'Void' && !window.confirm('Void this invoice? This cannot be undone.')) {
       return Promise.resolve();
@@ -821,60 +950,23 @@ function InvoicesPanel({
     pushToast(`Payment recorded for ${invoiceId} via ${payment.method}.`);
   };
 
-  return (
-    <CreatorSplit>
-      <CreatorFormCard title="Create invoice" eyebrow="Invoice form">
-        <form className="creator-form" onSubmit={(event) => void submitInvoice(event)}>
-          <label>Work item<select value={invoiceDraft.workItemId} onChange={(event) => {
-            const item = state.workItems.find((workItem) => workItem.id === event.target.value);
-            setInvoiceDraft(blankInvoiceDraft(item));
-          }}>{state.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} · {item.customerName} · {item.deviceModel}</option>)}</select></label>
-          <div className="form-row">
-            <label>Labor<input type="number" min="0" value={invoiceDraft.laborAmount} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, laborAmount: Number(event.target.value) })} /></label>
-            <label>Parts<input type="number" min="0" value={invoiceDraft.partsAmount} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, partsAmount: Number(event.target.value) })} /></label>
-          </div>
-          <label>Diagnostic fee<input type="number" min="0" value={invoiceDraft.diagnosticFee} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, diagnosticFee: Number(event.target.value) })} /></label>
-          <p className="cost-breakdown"><span>Total <strong>{currencyFormatter.format(invoiceTotal)}</strong></span></p>
-          <label>Notes<textarea value={invoiceDraft.notes} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, notes: event.target.value })} placeholder={selectedWorkItem?.requiredChanges ?? 'Invoice notes'} /></label>
-          <button className="primary-button icon-button" type="submit" disabled={isSubmitting}><Receipt aria-hidden="true" size={16} /><span>{isSubmitting ? 'Issuing…' : 'Issue invoice'}</span></button>
-        </form>
-      </CreatorFormCard>
-      <InvoiceList invoices={state.invoices} updateInvoiceStatus={changeInvoiceStatus} recordPayment={submitPayment} pushToast={pushToast} />
-    </CreatorSplit>
-  );
+  return <InvoiceList invoices={state.invoices} updateInvoiceStatus={changeInvoiceStatus} recordPayment={submitPayment} pushToast={pushToast} />;
 }
 
 
-function WorkItemsSection({
-  subView,
-  actorRole,
+function NewWorkItemForm({
   state,
   createWorkItem,
-  updateWorkItem,
-  cancelWorkItem,
-  notifyCustomerNow,
   pushToast,
+  navigate,
 }: {
-  subView: 'all' | 'walkins';
-  actorRole: UserRole;
   state: DeskActions['state'];
   createWorkItem: DeskActions['createWorkItem'];
-  updateWorkItem: DeskActions['updateWorkItem'];
-  cancelWorkItem: DeskActions['cancelWorkItem'];
-  notifyCustomerNow: DeskActions['notifyCustomerNow'];
   pushToast: (message: ReactNode, tone?: ToastTone) => void;
+  navigate: (id: string) => void;
 }) {
-  const [showCreateForm, setShowCreateForm] = useState(false);
   const [draft, setDraft] = useState<WorkItemDraft>(blankDraft);
-  const [query, setQuery] = useState('');
-  const [selectedId, setSelectedId] = useState(state.workItems[0]?.id ?? '');
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const filtered = state.workItems.filter((item) =>
-    `${item.id} ${item.customerName} ${item.deviceModel} ${item.status}`.toLowerCase().includes(query.toLowerCase()),
-  );
-  const list = subView === 'walkins' ? filtered.filter((item) => item.source === 'Walk-in') : filtered;
-  const selected = state.workItems.find((item) => item.id === selectedId) ?? list[0];
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -883,11 +975,64 @@ function WorkItemsSection({
       await createWorkItem(draft);
       pushToast(<>Created work item for <strong>{draft.customerName}</strong> · <strong>{draft.deviceModel}</strong>.</>);
       setDraft(blankDraft);
-      setShowCreateForm(false);
+      navigate('wi-all');
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  return (
+    <CreatorSplit>
+      <CreatorFormCard title="Create a work item" eyebrow="Request form">
+        <p className="muted">Capture online and walk-in customer requests, then assign the WI to a technician.</p>
+        <form className="creator-form" onSubmit={(event) => void submit(event)}>
+          <label>Customer name<input required value={draft.customerName} onChange={(event) => setDraft({ ...draft, customerName: event.target.value })} placeholder="Jane Doe" /></label>
+          <div className="form-row"><label>Phone<input required value={draft.customerPhone} onChange={(event) => setDraft({ ...draft, customerPhone: event.target.value })} placeholder="+1 555 0100" /></label><label>Email<input required type="email" value={draft.customerEmail} onChange={(event) => setDraft({ ...draft, customerEmail: event.target.value })} placeholder="jane@example.com" /></label></div>
+          <div className="form-row"><label>Source<select value={draft.source} onChange={(event) => setDraft({ ...draft, source: event.target.value as WorkItemDraft['source'] })}><option>Walk-in</option><option>Online</option></select></label><label>Priority<select value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: event.target.value as WorkItemDraft['priority'] })}>{priorities.map((priority) => <option key={priority}>{priority}</option>)}</select></label></div>
+          <div className="form-row"><label>Device type<select value={draft.deviceType} onChange={(event) => setDraft({ ...draft, deviceType: event.target.value as DeviceType })}>{deviceTypes.map((type) => <option key={type}>{type}</option>)}</select></label><label>Assigned technician<select value={draft.assignedTechnicianId} onChange={(event) => setDraft({ ...draft, assignedTechnicianId: event.target.value })}>{technicians.map((tech) => <option value={tech.id} key={tech.id}>{tech.name}</option>)}</select></label></div>
+          <label>Device model<input required value={draft.deviceModel} onChange={(event) => setDraft({ ...draft, deviceModel: event.target.value })} placeholder="MacBook Pro M2 / iPhone 14 / Gaming PC" /></label>
+          <label>Serial number<input value={draft.serialNumber} onChange={(event) => setDraft({ ...draft, serialNumber: event.target.value })} placeholder="Optional serial / IMEI" /></label>
+          <label>Issue summary<textarea required value={draft.issueSummary} onChange={(event) => setDraft({ ...draft, issueSummary: event.target.value })} placeholder="Describe symptoms, damage, accessories received, and urgency" /></label>
+          <div className="card-actions">
+            <button type="submit" className="primary-button" disabled={isSubmitting}>{isSubmitting ? 'Creating…' : 'Create WI'}</button>
+            <button type="button" className="secondary-button" onClick={() => navigate('wi-all')} disabled={isSubmitting}>Cancel</button>
+          </div>
+        </form>
+      </CreatorFormCard>
+      <RecordTable title="Recently created" rows={state.workItems.slice(0, 5).map(workItemToRow)} />
+    </CreatorSplit>
+  );
+}
+
+function WorkItemsSection({
+  subView,
+  actorRole,
+  state,
+  initialSelectedId,
+  updateWorkItem,
+  cancelWorkItem,
+  notifyCustomerNow,
+  pushToast,
+  navigate,
+}: {
+  subView: 'all' | 'walkins';
+  actorRole: UserRole;
+  state: DeskActions['state'];
+  initialSelectedId?: string | null;
+  updateWorkItem: DeskActions['updateWorkItem'];
+  cancelWorkItem: DeskActions['cancelWorkItem'];
+  notifyCustomerNow: DeskActions['notifyCustomerNow'];
+  pushToast: (message: ReactNode, tone?: ToastTone) => void;
+  navigate: (id: string) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [selectedId, setSelectedId] = useState(initialSelectedId ?? state.workItems[0]?.id ?? '');
+
+  const filtered = state.workItems.filter((item) =>
+    `${item.id} ${item.customerName} ${item.deviceModel} ${item.status}`.toLowerCase().includes(query.toLowerCase()),
+  );
+  const list = subView === 'walkins' ? filtered.filter((item) => item.source === 'Walk-in') : filtered;
+  const selected = state.workItems.find((item) => item.id === selectedId) ?? list[0];
 
   const cancelItem = (workItemId: string) => {
     if (!window.confirm('Cancel this work item? The customer will be notified and this cannot be undone.')) {
@@ -898,30 +1043,6 @@ function WorkItemsSection({
     pushToast('Work item cancelled.');
   };
 
-  if (showCreateForm) {
-    return (
-      <CreatorSplit>
-        <CreatorFormCard title="Create a work item" eyebrow="Request form">
-          <p className="muted">Capture online and walk-in customer requests, then assign the WI to a technician.</p>
-          <form className="creator-form" onSubmit={(event) => void submit(event)}>
-            <label>Customer name<input required value={draft.customerName} onChange={(event) => setDraft({ ...draft, customerName: event.target.value })} placeholder="Jane Doe" /></label>
-            <div className="form-row"><label>Phone<input required value={draft.customerPhone} onChange={(event) => setDraft({ ...draft, customerPhone: event.target.value })} placeholder="+1 555 0100" /></label><label>Email<input required type="email" value={draft.customerEmail} onChange={(event) => setDraft({ ...draft, customerEmail: event.target.value })} placeholder="jane@example.com" /></label></div>
-            <div className="form-row"><label>Source<select value={draft.source} onChange={(event) => setDraft({ ...draft, source: event.target.value as WorkItemDraft['source'] })}><option>Walk-in</option><option>Online</option></select></label><label>Priority<select value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: event.target.value as WorkItemDraft['priority'] })}>{priorities.map((priority) => <option key={priority}>{priority}</option>)}</select></label></div>
-            <div className="form-row"><label>Device type<select value={draft.deviceType} onChange={(event) => setDraft({ ...draft, deviceType: event.target.value as DeviceType })}>{deviceTypes.map((type) => <option key={type}>{type}</option>)}</select></label><label>Assigned technician<select value={draft.assignedTechnicianId} onChange={(event) => setDraft({ ...draft, assignedTechnicianId: event.target.value })}>{technicians.map((tech) => <option value={tech.id} key={tech.id}>{tech.name}</option>)}</select></label></div>
-            <label>Device model<input required value={draft.deviceModel} onChange={(event) => setDraft({ ...draft, deviceModel: event.target.value })} placeholder="MacBook Pro M2 / iPhone 14 / Gaming PC" /></label>
-            <label>Serial number<input value={draft.serialNumber} onChange={(event) => setDraft({ ...draft, serialNumber: event.target.value })} placeholder="Optional serial / IMEI" /></label>
-            <label>Issue summary<textarea required value={draft.issueSummary} onChange={(event) => setDraft({ ...draft, issueSummary: event.target.value })} placeholder="Describe symptoms, damage, accessories received, and urgency" /></label>
-            <div className="card-actions">
-              <button type="submit" className="primary-button" disabled={isSubmitting}>{isSubmitting ? 'Creating…' : 'Create WI'}</button>
-              <button type="button" className="secondary-button" onClick={() => setShowCreateForm(false)} disabled={isSubmitting}>Cancel</button>
-            </div>
-          </form>
-        </CreatorFormCard>
-        <RecordTable title="Recently created" rows={state.workItems.slice(0, 5).map(workItemToRow)} />
-      </CreatorSplit>
-    );
-  }
-
   return (
     <CreatorRecordBrowser
       title={subView === 'walkins' ? 'Walk-in requests' : 'All work items'}
@@ -930,7 +1051,7 @@ function WorkItemsSection({
       query={query}
       setQuery={setQuery}
       setSelectedId={setSelectedId}
-      toolbar={<button type="button" className="primary-button icon-button" onClick={() => setShowCreateForm(true)}><Plus aria-hidden="true" size={16} /><span>New work item</span></button>}
+      toolbar={<button type="button" className="primary-button icon-button" onClick={() => navigate('wi-new')}><Plus aria-hidden="true" size={16} /><span>New work item</span></button>}
       detail={selected && (
         <WorkItemCard item={selected}>
           <div className="card-actions">
@@ -1217,6 +1338,68 @@ function WorkItemCard({ item, children }: { item: WorkItem; children?: ReactNode
       <p><strong>Changes:</strong> {item.requiredChanges || 'Pending estimate'}</p>
       {children}
     </article>
+  );
+}
+
+function NewPartForm({
+  addInventoryPart,
+  reset,
+  canReset,
+  pushToast,
+}: {
+  addInventoryPart: DeskActions['addInventoryPart'];
+  reset: DeskActions['reset'];
+  canReset: boolean;
+  pushToast: (message: ReactNode, tone?: ToastTone) => void;
+}) {
+  const [part, setPart] = useState<InventoryPart>(blankPart);
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    addInventoryPart({ ...part, sku: part.sku.toUpperCase(), compatibleWith: [part.compatibleWith[0] ?? 'Laptop'] });
+    pushToast(`Saved part ${part.sku.toUpperCase() || part.name}.`);
+    setPart(blankPart);
+  };
+
+  const confirmReset = () => {
+    if (!window.confirm('Reset all demo data? This permanently wipes every local work item, invoice, and inventory change.')) {
+      return;
+    }
+
+    reset();
+    pushToast('Demo data reset.');
+  };
+
+  return (
+    <CreatorFormCard title="Part form" eyebrow="Inventory">
+      <form className="creator-form" onSubmit={submit}>
+        <label>SKU<input required value={part.sku} onChange={(event) => setPart({ ...part, sku: event.target.value })} placeholder="BAT-MBP-2024" /></label>
+        <label>Name<input required value={part.name} onChange={(event) => setPart({ ...part, name: event.target.value })} placeholder="MacBook Battery" /></label>
+        <div className="form-row"><label>Device<select value={part.compatibleWith[0]} onChange={(event) => setPart({ ...part, compatibleWith: [event.target.value as DeviceType] })}>{deviceTypes.map((type) => <option key={type}>{type}</option>)}</select></label><label>Quantity<input type="number" value={part.quantity} onChange={(event) => setPart({ ...part, quantity: Number(event.target.value) })} /></label></div>
+        <div className="form-row"><label>Reorder at<input type="number" value={part.reorderLevel} onChange={(event) => setPart({ ...part, reorderLevel: Number(event.target.value) })} /></label><label>Cost<input type="number" value={part.unitCost} onChange={(event) => setPart({ ...part, unitCost: Number(event.target.value) })} /></label></div>
+        <div className="card-actions"><button className="primary-button" type="submit">Add / update part</button>{canReset && <button className="secondary-dark-button" type="button" onClick={confirmReset}>Reset demo data</button>}</div>
+      </form>
+    </CreatorFormCard>
+  );
+}
+
+function InventoryReport({ state, adjustInventory }: { state: DeskActions['state']; adjustInventory: DeskActions['adjustInventory'] }) {
+  return (
+    <div className="creator-list-panel">
+      <ListHeader title="Inventory report" count={state.inventoryParts.length} />
+      {state.inventoryParts.map((inventoryPart) => {
+        const lowStock = inventoryPart.quantity <= inventoryPart.reorderLevel;
+        return (
+          <article className="record-row inventory-record" key={inventoryPart.sku}>
+            <div><strong>{inventoryPart.name}</strong><span>{inventoryPart.sku} · {inventoryPart.compatibleWith.join(', ')}</span></div>
+            <div className="inventory-meta"><span className={lowStock ? 'stock-low' : 'stock-ok'}>{inventoryPart.quantity} in stock</span><small>Reorder at {inventoryPart.reorderLevel} · Cost {currencyFormatter.format(inventoryPart.unitCost)}</small></div>
+            <div className="stepper">
+              <button type="button" aria-label={`Decrease ${inventoryPart.name} quantity`} onClick={() => adjustInventory(inventoryPart.sku, -1)}><Minus aria-hidden="true" size={16} /></button>
+              <button type="button" aria-label={`Increase ${inventoryPart.name} quantity`} onClick={() => adjustInventory(inventoryPart.sku, 1)}><Plus aria-hidden="true" size={16} /></button>
+            </div>
+          </article>
+        );
+      })}
+    </div>
   );
 }
 
@@ -1697,11 +1880,18 @@ function CreatorRecordBrowser({ title, records, selected, query, setQuery, setSe
   );
 }
 
-function RecordTable({ title, rows }: { title: string; rows: Array<{ id: string; primary: string; secondary: string; meta?: string }> }) {
+function RecordTable({ title, rows, onRowClick }: { title: string; rows: Array<{ id: string; primary: string; secondary: string; meta?: string }>; onRowClick?: (id: string) => void }) {
   return (
     <div className="creator-list-panel">
       <ListHeader title={title} count={rows.length} />
-      {rows.length ? rows.map((row) => <div className="record-row" key={row.id}><div><strong>{row.primary}</strong><span>{row.id} · {row.secondary}</span></div>{row.meta && <span className="record-meta">{row.meta}</span>}</div>) : <EmptyState title="No records" body="This report does not have records yet." />}
+      {rows.length ? rows.map((row) => {
+        const content = <><div><strong>{row.primary}</strong><span>{row.id} · {row.secondary}</span></div>{row.meta && <span className="record-meta">{row.meta}</span>}</>;
+        return onRowClick ? (
+          <button type="button" className="record-row clickable" key={row.id} onClick={() => onRowClick(row.id)}>{content}</button>
+        ) : (
+          <div className="record-row" key={row.id}>{content}</div>
+        );
+      }) : <EmptyState title="No records" body="This report does not have records yet." />}
     </div>
   );
 }
@@ -1772,8 +1962,12 @@ function SyncStatus({
   );
 }
 
-function MetricCard({ label, value, helper }: { label: string; value: string; helper: string }) {
-  return <article className="metric-card"><span>{label}</span><strong>{value}</strong><p>{helper}</p></article>;
+function MetricCard({ label, value, helper, onClick }: { label: string; value: string; helper: string; onClick?: () => void }) {
+  const content = <><span>{label}</span><strong>{value}</strong><p>{helper}</p></>;
+  if (onClick) {
+    return <button type="button" className="metric-card clickable" onClick={onClick}>{content}</button>;
+  }
+  return <article className="metric-card">{content}</article>;
 }
 
 export default App;

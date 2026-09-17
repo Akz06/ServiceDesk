@@ -194,7 +194,7 @@ textarea { min-height: 90px; resize: vertical; line-height: 1.5; }
 .creator-shell { min-height: 100vh; display: grid; grid-template-columns: 260px 1fr; background: var(--bg); }
 .creator-sidebar { position: sticky; top: 0; height: 100vh; overflow: visible; background: var(--sidebar); color: var(--sidebar-text); padding: 18px; display: flex; flex-direction: column; gap: 18px; }
 .app-brand { padding-bottom: 14px; border-bottom: 1px solid color-mix(in srgb, var(--sidebar-text) 18%, transparent); position: relative; }
-.sidebar-section { display: grid; gap: 8px; min-height: 0; overflow-y: auto; flex: 1; }
+.sidebar-section { display: grid; align-content: start; gap: 8px; min-height: 0; overflow-y: auto; flex: 1; }
 .sidebar-label { font-size: 0.68rem; font-weight: 850; letter-spacing: .12em; text-transform: uppercase; color: color-mix(in srgb, var(--sidebar-text) 70%, transparent); }
 .nav-item { width: 100%; min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 10px; background: transparent; color: var(--sidebar-text); text-align: left; }
 .nav-item-label { display: flex; align-items: center; gap: 10px; min-width: 0; }
@@ -230,6 +230,9 @@ textarea { min-height: 90px; resize: vertical; line-height: 1.5; }
 .metric-card span { color: var(--muted); font-weight: 850; text-transform: uppercase; font-size: var(--font-xs); letter-spacing: .09em; }
 .metric-card strong { display: block; font-size: var(--font-xl); margin: 6px 0; color: var(--text-strong); letter-spacing: -0.025em; }
 .metric-card p { margin: 0; color: var(--muted); line-height: 1.45; font-size: var(--font-sm); }
+button.metric-card { font: inherit; color: inherit; text-align: left; width: 100%; cursor: pointer; transition: background-color .1s ease-out; }
+button.metric-card:hover { background: var(--surface-subtle); }
+button.metric-card:focus-visible { outline-offset: -3px; }
 @media (max-width: 640px) {
   .creator-kpi-row, .creator-report-grid { flex-direction: column; }
   .metric-card { border-right: 0; border-bottom: 1px solid var(--border-soft); }
@@ -256,6 +259,8 @@ textarea { min-height: 90px; resize: vertical; line-height: 1.5; }
 .record-row.selectable { width: 100%; grid-template-columns: 1fr auto; border-bottom: 0; border-radius: 10px; padding: 11px 10px; transition: background-color .1s ease-out; }
 .record-row.selectable:hover { background: var(--surface); }
 .record-row.selectable.active { background: var(--primary-soft); }
+.record-row.clickable { font: inherit; color: inherit; width: 100%; cursor: pointer; transition: background-color .1s ease-out; }
+.record-row.clickable:hover { background: var(--surface); border-radius: 10px; }
 .record-meta { font-weight: 850; color: var(--muted-strong) !important; }
 .record-browser { display: grid; grid-template-columns: minmax(300px, .84fr) 1.16fr; gap: 16px; align-items: start; }
 .record-list { display: grid; gap: 10px; }
