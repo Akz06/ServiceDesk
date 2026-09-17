@@ -902,7 +902,7 @@ function WorkItemsSection({
       detail={selected && (
         <WorkItemCard item={selected}>
           <div className="card-actions">
-            <select value={selected.assignedTechnicianId} onChange={(event) => updateWorkItem(selected.id, { assignedTechnicianId: event.target.value, status: 'Assigned' }, actorRole, `${actorRole} reassigned the work item.`)}>
+            <select aria-label="Reassign technician" value={selected.assignedTechnicianId} onChange={(event) => updateWorkItem(selected.id, { assignedTechnicianId: event.target.value, status: 'Assigned' }, actorRole, `${actorRole} reassigned the work item.`)}>
               {technicians.map((tech) => <option value={tech.id} key={tech.id}>{tech.name}</option>)}
             </select>
             <button type="button" className="secondary-dark-button" onClick={() => { notifyCustomerNow(selected.id); pushToast('Sent a status update to the customer (mock SMS).'); }}>Notify customer</button>
@@ -1308,15 +1308,15 @@ function InvoiceRow({
         <span className="muted">Paid via {invoice.paymentMethod || 'unknown method'} · Ref {invoice.paymentReference || '—'}</span>
       ) : invoice.status === 'Issued' ? (
         <div className="card-actions">
-          <select value={method} onChange={(event) => setMethod(event.target.value as PaymentMethod)}>
+          <select aria-label="Payment method" value={method} onChange={(event) => setMethod(event.target.value as PaymentMethod)}>
             {paymentMethods.map((option) => <option key={option}>{option}</option>)}
           </select>
-          <input placeholder="Reference (optional)" value={reference} onChange={(event) => setReference(event.target.value)} />
+          <input aria-label="Payment reference (optional)" placeholder="Reference (optional)" value={reference} onChange={(event) => setReference(event.target.value)} />
           <button type="button" className="primary-button" onClick={() => void handleRecordPayment()} disabled={isRecording}>{isRecording ? 'Recording…' : 'Record payment'}</button>
           <button type="button" className="danger-button" onClick={() => updateInvoiceStatus(invoice.id, 'Void')} disabled={isRecording}>Void</button>
         </div>
       ) : (
-        <select value={invoice.status} onChange={(event) => updateInvoiceStatus(invoice.id, event.target.value as InvoiceStatus)}>
+        <select aria-label="Invoice status" value={invoice.status} onChange={(event) => updateInvoiceStatus(invoice.id, event.target.value as InvoiceStatus)}>
           {(['Draft', 'Issued', 'Void'] satisfies InvoiceStatus[]).map((status) => <option key={status}>{status}</option>)}
         </select>
       )}
