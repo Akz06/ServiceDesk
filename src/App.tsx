@@ -5,6 +5,7 @@ import {
   BookOpen,
   Boxes,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   ClipboardList,
   Cog,
@@ -52,6 +53,7 @@ import { exportApi, isApiPersistenceEnabled, userApi } from './services/apiClien
 import type {
   AuthProfile,
   AuthUser,
+  Customer,
   DeviceType,
   Invoice,
   InventoryPart,
@@ -64,6 +66,7 @@ import type {
   ReportEntity,
   SavedReport,
   SavedReportDraft,
+  Technician,
   UserDraft,
   UserRole,
   WorkItem,
@@ -682,6 +685,15 @@ function DashboardPanel({
   const metrics = getMetrics(state);
   const stockSectionId = moduleAccess.includes('admin') || moduleAccess.includes('agent') ? 'inventory' : 'parts';
 
+  const lowStockRows = state.inventoryParts.filter((part) => part.quantity <= part.reorderLevel).map((part) => ({ ...part, id: part.sku }));
+  const lowStockColumns: DataGridColumn<InventoryPart & { id: string }>[] = [
+    { key: 'part', label: 'Part', render: (part) => <strong>{part.name}</strong>, sortValue: (part) => part.name },
+    { key: 'sku', label: 'SKU', render: (part) => part.sku, sortValue: (part) => part.sku },
+    { key: 'stock', label: 'Stock', render: (part) => <span className={part.quantity <= part.reorderLevel ? 'stock-low' : 'stock-ok'}>{part.quantity} in stock</span>, sortValue: (part) => part.quantity },
+    { key: 'reorder', label: 'Reorder at', render: (part) => part.reorderLevel, sortValue: (part) => part.reorderLevel },
+    { key: 'cost', label: 'Cost', render: (part) => currencyFormatter.format(part.unitCost), sortValue: (part) => part.unitCost },
+  ];
+
   if (profile === 'admin') {
     return (
       <div className="creator-page">
@@ -692,14 +704,16 @@ function DashboardPanel({
           <MetricCard label="Parts" value={String(state.inventoryParts.length)} helper="Inventory SKUs" onClick={() => navigate('parts')} />
         </div>
         <div className="creator-record-grid">
-          <RecordTable
+          <DataGrid
             title="Recent work items"
-            rows={state.workItems.slice(0, 6).map((item) => ({ id: item.id, primary: item.deviceModel, secondary: `${item.customerName} · ${item.status}`, meta: currencyFormatter.format(item.estimatedPrice) }))}
-            onRowClick={(id) => navigate('wi-all', id)}
+            columns={workItemGridColumns}
+            rows={state.workItems.slice(0, 6)}
+            onRowClick={(item) => navigate('wi-all', item.id)}
           />
-          <RecordTable
+          <DataGrid
             title="Low stock alerts"
-            rows={state.inventoryParts.filter((part) => part.quantity <= part.reorderLevel).map((part) => ({ id: part.sku, primary: part.name, secondary: `${part.quantity} available · reorder at ${part.reorderLevel}`, meta: currencyFormatter.format(part.unitCost) }))}
+            columns={lowStockColumns}
+            rows={lowStockRows}
             onRowClick={() => navigate(stockSectionId)}
           />
         </div>
@@ -709,19 +723,21 @@ function DashboardPanel({
 
   if (profile === 'technician') {
     const assignedItems = state.workItems.filter((item) => item.assignedTechnicianId === selectedTechnicianId && item.status !== 'Cancelled');
-    return <RecordTable title="My assigned jobs" rows={assignedItems.map(workItemToRow)} onRowClick={() => navigate('myjobs-assigned')} />;
+    return <DataGrid title="My assigned jobs" columns={workItemGridColumns} rows={assignedItems} onRowClick={() => navigate('myjobs-assigned')} />;
   }
 
   return (
     <div className="creator-record-grid">
-      <RecordTable
+      <DataGrid
         title="Recent work items"
-        rows={state.workItems.slice(0, 6).map((item) => ({ id: item.id, primary: item.deviceModel, secondary: `${item.customerName} · ${item.status}`, meta: currencyFormatter.format(item.estimatedPrice) }))}
-        onRowClick={(id) => navigate('wi-all', id)}
+        columns={workItemGridColumns}
+        rows={state.workItems.slice(0, 6)}
+        onRowClick={(item) => navigate('wi-all', item.id)}
       />
-      <RecordTable
+      <DataGrid
         title="Low stock alerts"
-        rows={state.inventoryParts.filter((part) => part.quantity <= part.reorderLevel).map((part) => ({ id: part.sku, primary: part.name, secondary: `${part.quantity} available · reorder at ${part.reorderLevel}`, meta: currencyFormatter.format(part.unitCost) }))}
+        columns={lowStockColumns}
+        rows={lowStockRows}
         onRowClick={() => navigate(stockSectionId)}
       />
     </div>
@@ -837,43 +853,68 @@ function UsersReport({ currentUser, pushToast }: { currentUser: AuthUser; pushTo
     }
   };
 
+  const columns: DataGridColumn<ManagedUser>[] = [
+    { key: 'name', label: 'Name', render: (managedUser) => <strong>{managedUser.name}</strong>, sortValue: (managedUser) => managedUser.name },
+    { key: 'email', label: 'Email', render: (managedUser) => managedUser.email, sortValue: (managedUser) => managedUser.email },
+    { key: 'profile', label: 'Profile', render: (managedUser) => <span className="pill">{managedUser.profile}</span>, sortValue: (managedUser) => managedUser.profile },
+    { key: 'status', label: 'Status', render: (managedUser) => <span className={managedUser.active ? 'stock-ok' : 'muted'}>{managedUser.active ? 'Active' : 'Inactive'}</span>, sortValue: (managedUser) => (managedUser.active ? 0 : 1) },
+    {
+      key: 'action',
+      label: 'Action',
+      render: (managedUser) => (
+        <button className={managedUser.active ? 'danger-button' : 'secondary-dark-button'} type="button" onClick={() => void toggleUser(managedUser)} disabled={managedUser.id === currentUser.id}>
+          {managedUser.active ? 'Deactivate' : 'Activate'}
+        </button>
+      ),
+    },
+  ];
+
   return (
-    <div className="creator-list-panel">
-      <ListHeader title="Users report" count={users.length} />
+    <>
       {userError && <div className="login-error">{userError}</div>}
-      {users.map((managedUser) => (
-        <div className="record-row" key={managedUser.id}>
-          <div><strong>{managedUser.name}</strong><span>{managedUser.email}</span></div>
-          <span className="pill">{managedUser.profile}</span>
-          <button className={managedUser.active ? 'danger-button' : 'secondary-dark-button'} type="button" onClick={() => void toggleUser(managedUser)} disabled={managedUser.id === currentUser.id}>{managedUser.active ? 'Deactivate' : 'Activate'}</button>
-        </div>
-      ))}
-    </div>
+      <DataGrid title="Users report" columns={columns} rows={users} />
+    </>
   );
 }
 
 function CustomersPanel({ state, pushToast }: { state: DeskActions['state']; pushToast: (message: ReactNode, tone?: ToastTone) => void }) {
+  const columns: DataGridColumn<Customer>[] = [
+    { key: 'name', label: 'Name', render: (customer) => <strong>{customer.name}</strong>, sortValue: (customer) => customer.name },
+    { key: 'phone', label: 'Phone', render: (customer) => customer.phone, sortValue: (customer) => customer.phone },
+    { key: 'email', label: 'Email', render: (customer) => customer.email, sortValue: (customer) => customer.email },
+    { key: 'repairs', label: 'Repairs', render: (customer) => state.workItems.filter((item) => item.customerId === customer.id).length, sortValue: (customer) => state.workItems.filter((item) => item.customerId === customer.id).length },
+  ];
+
   return (
-    <>
-      <div className="card-actions"><button type="button" className="secondary-dark-button icon-button" onClick={() => {
+    <DataGrid
+      title="Customer master"
+      columns={columns}
+      rows={state.customers}
+      toolbar={<button type="button" className="secondary-dark-button icon-button" onClick={() => {
         if (isApiPersistenceEnabled) {
           void exportApi.customersCsv().catch((error: unknown) => pushToast(error instanceof Error ? error.message : 'Export failed.', 'error'));
           return;
         }
         exportCustomersCsvLocally(state);
-      }}><Download aria-hidden="true" size={16} /><span>Export CSV</span></button></div>
-      <RecordTable title="Customer master" rows={state.customers.map((customer) => ({ id: customer.id, primary: customer.name, secondary: `${customer.phone} · ${customer.email}`, meta: `${state.workItems.filter((item) => item.customerId === customer.id).length} repairs` }))} />
-    </>
+      }}><Download aria-hidden="true" size={16} /><span>Export CSV</span></button>}
+    />
   );
 }
 
 function TechniciansPanel({ state }: { state: DeskActions['state'] }) {
-  return (
-    <RecordTable
-      title="Technician master"
-      rows={technicians.map((tech) => ({ id: tech.id, primary: tech.name, secondary: `${tech.email} · ${tech.specialties.join(', ')}`, meta: `${state.workItems.filter((item) => item.assignedTechnicianId === tech.id && !terminalStatuses.includes(item.status)).length} active` }))}
-    />
-  );
+  const columns: DataGridColumn<Technician>[] = [
+    { key: 'name', label: 'Name', render: (tech) => <strong>{tech.name}</strong>, sortValue: (tech) => tech.name },
+    { key: 'email', label: 'Email', render: (tech) => tech.email, sortValue: (tech) => tech.email },
+    { key: 'specialties', label: 'Specialties', render: (tech) => tech.specialties.join(', ') },
+    {
+      key: 'active',
+      label: 'Active jobs',
+      render: (tech) => state.workItems.filter((item) => item.assignedTechnicianId === tech.id && !terminalStatuses.includes(item.status)).length,
+      sortValue: (tech) => state.workItems.filter((item) => item.assignedTechnicianId === tech.id && !terminalStatuses.includes(item.status)).length,
+    },
+  ];
+
+  return <DataGrid title="Technician master" columns={columns} rows={technicians} />;
 }
 
 function NewInvoiceForm({
@@ -999,7 +1040,7 @@ function NewWorkItemForm({
           </div>
         </form>
       </CreatorFormCard>
-      <RecordTable title="Recently created" rows={state.workItems.slice(0, 5).map(workItemToRow)} />
+      <DataGrid title="Recently created" columns={workItemGridColumns} rows={state.workItems.slice(0, 5)} />
     </CreatorSplit>
   );
 }
@@ -1383,24 +1424,26 @@ function NewPartForm({
 }
 
 function InventoryReport({ state, adjustInventory }: { state: DeskActions['state']; adjustInventory: DeskActions['adjustInventory'] }) {
-  return (
-    <div className="creator-list-panel">
-      <ListHeader title="Inventory report" count={state.inventoryParts.length} />
-      {state.inventoryParts.map((inventoryPart) => {
-        const lowStock = inventoryPart.quantity <= inventoryPart.reorderLevel;
-        return (
-          <article className="record-row inventory-record" key={inventoryPart.sku}>
-            <div><strong>{inventoryPart.name}</strong><span>{inventoryPart.sku} · {inventoryPart.compatibleWith.join(', ')}</span></div>
-            <div className="inventory-meta"><span className={lowStock ? 'stock-low' : 'stock-ok'}>{inventoryPart.quantity} in stock</span><small>Reorder at {inventoryPart.reorderLevel} · Cost {currencyFormatter.format(inventoryPart.unitCost)}</small></div>
-            <div className="stepper">
-              <button type="button" aria-label={`Decrease ${inventoryPart.name} quantity`} onClick={() => adjustInventory(inventoryPart.sku, -1)}><Minus aria-hidden="true" size={16} /></button>
-              <button type="button" aria-label={`Increase ${inventoryPart.name} quantity`} onClick={() => adjustInventory(inventoryPart.sku, 1)}><Plus aria-hidden="true" size={16} /></button>
-            </div>
-          </article>
-        );
-      })}
-    </div>
-  );
+  const columns: DataGridColumn<InventoryPart & { id: string }>[] = [
+    { key: 'name', label: 'Name', render: (part) => <strong>{part.name}</strong>, sortValue: (part) => part.name },
+    { key: 'sku', label: 'SKU', render: (part) => part.sku, sortValue: (part) => part.sku },
+    { key: 'device', label: 'Device', render: (part) => part.compatibleWith.join(', ') },
+    { key: 'stock', label: 'Stock', render: (part) => <span className={part.quantity <= part.reorderLevel ? 'stock-low' : 'stock-ok'}>{part.quantity} in stock</span>, sortValue: (part) => part.quantity },
+    { key: 'reorder', label: 'Reorder at', render: (part) => part.reorderLevel, sortValue: (part) => part.reorderLevel },
+    { key: 'cost', label: 'Cost', render: (part) => currencyFormatter.format(part.unitCost), sortValue: (part) => part.unitCost },
+    {
+      key: 'adjust',
+      label: 'Adjust',
+      render: (part) => (
+        <div className="stepper" onClick={(event) => event.stopPropagation()}>
+          <button type="button" aria-label={`Decrease ${part.name} quantity`} onClick={() => adjustInventory(part.sku, -1)}><Minus aria-hidden="true" size={16} /></button>
+          <button type="button" aria-label={`Increase ${part.name} quantity`} onClick={() => adjustInventory(part.sku, 1)}><Plus aria-hidden="true" size={16} /></button>
+        </div>
+      ),
+    },
+  ];
+
+  return <DataGrid title="Inventory report" columns={columns} rows={state.inventoryParts.map((part) => ({ ...part, id: part.sku }))} />;
 }
 
 function InventoryView({ state, adjustInventory, addInventoryPart, reset, canManage, canReset, pushToast }: DeskActions & { canManage: boolean; canReset: boolean; pushToast: (message: ReactNode, tone?: ToastTone) => void }) {
@@ -1856,23 +1899,22 @@ function CreatorRecordBrowser({ title, records, selected, query, setQuery, setSe
 
   return (
     <div className="record-browser">
-      <div className="creator-list-panel">
-        <div className="list-header"><h3>{title}</h3><div className="card-actions"><span>{records.length} records</span>{toolbar}</div></div>
-        {!hideSearch && (
-          <>
+      <DataGrid
+        title={title}
+        columns={workItemGridColumns}
+        rows={records}
+        selectedId={selected?.id}
+        onRowClick={(item) => setSelectedId(item.id)}
+        toolbar={toolbar}
+        emptyTitle="No records"
+        emptyBody="Nothing matches yet."
+        filter={!hideSearch && (
+          <div className="data-grid-filter">
             <label className="visually-hidden" htmlFor={searchId}>Search {title}</label>
             <input id={searchId} className="search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search records" />
-          </>
+          </div>
         )}
-        <div className="record-list">
-          {records.map((item) => (
-            <button type="button" className={selected?.id === item.id ? 'record-row selectable active' : 'record-row selectable'} key={item.id} onClick={() => setSelectedId(item.id)}>
-              <div><strong>{item.deviceModel}</strong><span>{item.id} · {item.customerName}</span></div>
-              <span className={`status ${item.status.toLowerCase().replaceAll(' ', '-')}`}>{item.status}</span>
-            </button>
-          ))}
-        </div>
-      </div>
+      />
       <div className="creator-detail-panel">
         {detail ?? <EmptyState title="Select a record" body="Choose a record from the report to open its detail view." />}
       </div>
@@ -1880,18 +1922,111 @@ function CreatorRecordBrowser({ title, records, selected, query, setQuery, setSe
   );
 }
 
-function RecordTable({ title, rows, onRowClick }: { title: string; rows: Array<{ id: string; primary: string; secondary: string; meta?: string }>; onRowClick?: (id: string) => void }) {
+interface DataGridColumn<T> {
+  key: string;
+  label: string;
+  render: (row: T) => ReactNode;
+  sortValue?: (row: T) => string | number;
+}
+
+function DataGrid<T extends { id: string }>({
+  title,
+  columns,
+  rows,
+  onRowClick,
+  selectedId,
+  toolbar,
+  filter,
+  emptyTitle = 'No records',
+  emptyBody = 'This report does not have records yet.',
+}: {
+  title: string;
+  columns: DataGridColumn<T>[];
+  rows: T[];
+  onRowClick?: (row: T) => void;
+  selectedId?: string;
+  toolbar?: ReactNode;
+  filter?: ReactNode;
+  emptyTitle?: string;
+  emptyBody?: string;
+}) {
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' } | null>(null);
+
+  const sortedRows = useMemo(() => {
+    const column = sort ? columns.find((candidate) => candidate.key === sort.key) : undefined;
+    if (!sort || !column?.sortValue) {
+      return rows;
+    }
+    const sortValue = column.sortValue;
+    const sorted = [...rows].sort((a, b) => {
+      const left = sortValue(a);
+      const right = sortValue(b);
+      return left < right ? -1 : left > right ? 1 : 0;
+    });
+    return sort.dir === 'desc' ? sorted.reverse() : sorted;
+  }, [rows, sort, columns]);
+
+  const toggleSort = (key: string) => {
+    setSort((current) => {
+      if (!current || current.key !== key) {
+        return { key, dir: 'asc' };
+      }
+      return current.dir === 'asc' ? { key, dir: 'desc' } : null;
+    });
+  };
+
+  const allChecked = rows.length > 0 && checked.size === rows.length;
+  const toggleAll = () => setChecked(allChecked ? new Set() : new Set(rows.map((row) => row.id)));
+  const toggleOne = (id: string) => setChecked((current) => {
+    const next = new Set(current);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    return next;
+  });
+
   return (
-    <div className="creator-list-panel">
-      <ListHeader title={title} count={rows.length} />
-      {rows.length ? rows.map((row) => {
-        const content = <><div><strong>{row.primary}</strong><span>{row.id} · {row.secondary}</span></div>{row.meta && <span className="record-meta">{row.meta}</span>}</>;
-        return onRowClick ? (
-          <button type="button" className="record-row clickable" key={row.id} onClick={() => onRowClick(row.id)}>{content}</button>
-        ) : (
-          <div className="record-row" key={row.id}>{content}</div>
-        );
-      }) : <EmptyState title="No records" body="This report does not have records yet." />}
+    <div className="creator-list-panel data-grid-panel">
+      <div className="list-header"><h3>{title}</h3><div className="card-actions"><span>{rows.length} records</span>{toolbar}</div></div>
+      {filter}
+      {rows.length ? (
+        <div className="data-grid">
+          <table className="data-grid-table">
+            <thead>
+              <tr>
+                <th className="data-grid-check-col"><input type="checkbox" aria-label="Select all rows" checked={allChecked} onChange={toggleAll} /></th>
+                {columns.map((column) => (
+                  <th key={column.key}>
+                    {column.label}
+                    {column.sortValue && (
+                      <button type="button" className="data-grid-sort" aria-label={`Sort by ${column.label}`} onClick={() => toggleSort(column.key)}>
+                        <ChevronDown aria-hidden="true" size={13} />
+                      </button>
+                    )}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sortedRows.map((row) => (
+                <tr
+                  key={row.id}
+                  className={[onRowClick && 'is-clickable', selectedId === row.id && 'is-active'].filter(Boolean).join(' ')}
+                  onClick={() => onRowClick?.(row)}
+                >
+                  <td className="data-grid-check-col" onClick={(event) => event.stopPropagation()}>
+                    <input type="checkbox" aria-label={`Select row ${row.id}`} checked={checked.has(row.id)} onChange={() => toggleOne(row.id)} />
+                  </td>
+                  {columns.map((column) => <td key={column.key}>{column.render(row)}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : <EmptyState title={emptyTitle} body={emptyBody} />}
     </div>
   );
 }
@@ -1904,9 +2039,13 @@ function EmptyState({ title, body }: { title: string; body: string }) {
   return <div className="empty-state"><strong>{title}</strong><span>{body}</span></div>;
 }
 
-function workItemToRow(item: WorkItem) {
-  return { id: item.id, primary: item.deviceModel, secondary: `${item.customerName} · ${item.status}`, meta: currencyFormatter.format(item.estimatedPrice) };
-}
+const workItemGridColumns: DataGridColumn<WorkItem>[] = [
+  { key: 'device', label: 'Device', render: (item) => <strong>{item.deviceModel}</strong>, sortValue: (item) => item.deviceModel },
+  { key: 'id', label: 'ID', render: (item) => item.id, sortValue: (item) => item.id },
+  { key: 'customer', label: 'Customer', render: (item) => item.customerName, sortValue: (item) => item.customerName },
+  { key: 'status', label: 'Status', render: (item) => <span className={`status ${item.status.toLowerCase().replaceAll(' ', '-')}`}>{item.status}</span>, sortValue: (item) => item.status },
+  { key: 'estimate', label: 'Estimate', render: (item) => currencyFormatter.format(item.estimatedPrice), sortValue: (item) => item.estimatedPrice },
+];
 
 function profileToRole(profile: AuthProfile): UserRole {
   return profile === 'admin' ? 'Admin' : profile === 'technician' ? 'Technician' : profile === 'customer' ? 'Customer' : 'Agent';

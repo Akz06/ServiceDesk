@@ -59,7 +59,7 @@ describe('App workflow', () => {
   it('lets customer approve an estimate', async () => {
     const user = await loginAs('customer@servicedesk.local', 'Customer@12345');
 
-    await user.selectOptions(screen.getByLabelText(/customer/i), 'CUST-2003');
+    await user.selectOptions(screen.getByLabelText(/^customer$/i), 'CUST-2003');
     await user.click(screen.getByRole('button', { name: /approve estimate/i }));
 
     expect(screen.getByText(/customer approved the shared estimate/i)).toBeInTheDocument();
