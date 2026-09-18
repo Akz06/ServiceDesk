@@ -26,6 +26,7 @@ import {
   createWorkItem,
   deleteSavedReport,
   getServiceDeskState,
+  markNotificationsRead,
   notifyCustomerNow,
   recordInvoicePayment,
   replaceAllData,
@@ -193,6 +194,11 @@ app.post('/api/invoices/:id/payment', requireAuth, requireAnyModule('admin', 'ag
 
 app.post('/api/work-items/:id/notify', requireAuth, requireAnyModule('admin', 'agent'), asyncHandler(async (request, response) => {
   response.json(await notifyCustomerNow(String(request.params.id)));
+}));
+
+app.post('/api/notifications/read', requireAuth, requireAdmin, asyncHandler(async (request, response) => {
+  const { ids } = request.body as { ids?: string[] };
+  response.json(await markNotificationsRead(ids));
 }));
 
 app.post('/api/reports', requireAuth, requireAdmin, asyncHandler(async (request: AuthenticatedRequest, response) => {

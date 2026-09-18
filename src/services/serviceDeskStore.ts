@@ -30,7 +30,7 @@ const cloneState = (state: ServiceDeskState): ServiceDeskState => ({
 
 let notificationSequence = 0;
 
-const mockNotification = (state: ServiceDeskState, input: Omit<Notification, 'id' | 'status' | 'provider' | 'createdAt'>): Notification => {
+const mockNotification = (state: ServiceDeskState, input: Omit<Notification, 'id' | 'status' | 'provider' | 'createdAt' | 'read'>): Notification => {
   notificationSequence += 1;
   return {
     ...input,
@@ -38,6 +38,7 @@ const mockNotification = (state: ServiceDeskState, input: Omit<Notification, 'id
     status: 'sent',
     provider: 'mock',
     createdAt: nowStamp(),
+    read: false,
   };
 };
 
@@ -68,7 +69,7 @@ export const loadServiceDeskState = (): ServiceDeskState => {
       ...getInitialServiceDeskState(),
       ...parsed,
       invoices: parsed.invoices ?? [],
-      notifications: parsed.notifications ?? [],
+      notifications: (parsed.notifications ?? []).map((notification) => ({ ...notification, read: notification.read ?? false })),
       savedReports: parsed.savedReports ?? [],
     };
   } catch {
@@ -215,6 +216,13 @@ export const notifyCustomerNowRecord = (state: ServiceDeskState, workItemId: str
 
   return { ...state, notifications: [notification, ...state.notifications] };
 };
+
+export const markNotificationsReadRecord = (state: ServiceDeskState, ids?: string[]): ServiceDeskState => ({
+  ...state,
+  notifications: state.notifications.map((notification) =>
+    !ids || ids.includes(notification.id) ? { ...notification, read: true } : notification,
+  ),
+});
 
 export const approveEstimateRecord = (state: ServiceDeskState, id: string): ServiceDeskState =>
   updateWorkItemRecord(

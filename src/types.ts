@@ -154,6 +154,7 @@ export interface Notification {
   status: 'sent' | 'failed';
   provider: string;
   createdAt: string;
+  read: boolean;
 }
 
 export interface SavedReport {

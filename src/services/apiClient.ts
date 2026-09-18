@@ -119,6 +119,7 @@ export const serviceDeskApi = {
   updateInvoiceStatus: (id: string, status: InvoiceStatus) => requestState(`/api/invoices/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   recordInvoicePayment: (id: string, payment: InvoicePaymentDraft) => requestState(`/api/invoices/${id}/payment`, { method: 'POST', body: JSON.stringify(payment) }),
   notifyCustomerNow: (workItemId: string) => requestState(`/api/work-items/${workItemId}/notify`, { method: 'POST' }),
+  markNotificationsRead: (ids?: string[]) => requestState('/api/notifications/read', { method: 'POST', body: JSON.stringify({ ids }) }),
   createSavedReport: (draft: SavedReportDraft) => requestState('/api/reports', { method: 'POST', body: JSON.stringify(draft) }),
   deleteSavedReport: (id: string) => requestState(`/api/reports/${id}`, { method: 'DELETE' }),
   reset: () => requestState('/api/reset', { method: 'POST' }),

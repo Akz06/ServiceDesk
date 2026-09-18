@@ -432,7 +432,7 @@ function Workspace({
         <div className="brand app-brand">
           <div className="brand-mark">SD</div>
           <span>{appName}</span>
-          {user.moduleAccess.includes('admin') && <NotificationBell notifications={state.notifications} />}
+          {user.moduleAccess.includes('admin') && <NotificationBell notifications={state.notifications} markNotificationsRead={serviceDesk.markNotificationsRead} />}
         </div>
         <div className="sidebar-section">
           <span className="sidebar-label">{user.role} sections</span>
@@ -1588,8 +1588,9 @@ const notificationChannelIcon: Record<string, LucideIcon> = { sms: MessageCircle
 const NOTIFICATION_POPOVER_WIDTH = 320;
 const NOTIFICATION_POPOVER_MARGIN = 12;
 
-function NotificationBell({ notifications }: { notifications: DeskActions['state']['notifications'] }) {
+function NotificationBell({ notifications, markNotificationsRead }: { notifications: DeskActions['state']['notifications']; markNotificationsRead: DeskActions['markNotificationsRead'] }) {
   const [isOpen, setIsOpen] = useState(false);
+  const unreadCount = notifications.filter((notification) => !notification.read).length;
   const [popoverOffset, setPopoverOffset] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -1645,27 +1646,40 @@ function NotificationBell({ notifications }: { notifications: DeskActions['state
         className="notification-bell-toggle"
         aria-haspopup="true"
         aria-expanded={isOpen}
-        aria-label={`Notifications${notifications.length ? ` (${notifications.length} unread)` : ''}`}
+        aria-label={`Notifications${unreadCount ? ` (${unreadCount} unread)` : ''}`}
         onClick={() => setIsOpen((open) => !open)}
       >
         <Bell aria-hidden="true" size={18} />
-        {notifications.length > 0 && <span className="notification-badge" aria-hidden="true">{notifications.length > 99 ? '99+' : notifications.length}</span>}
+        {unreadCount > 0 && <span className="notification-badge" aria-hidden="true">{unreadCount > 99 ? '99+' : unreadCount}</span>}
       </button>
       {isOpen && (
         <div className="notification-popover" role="dialog" aria-label="Notifications" style={{ left: `${popoverOffset}px` }}>
-          <div className="notification-popover-header"><h3>Notifications</h3><span>{notifications.length} sent</span></div>
+          <div className="notification-popover-header">
+            <h3>Notifications</h3>
+            {unreadCount > 0 ? (
+              <button type="button" className="notification-mark-all-read" onClick={() => void markNotificationsRead()}>Mark all as read</button>
+            ) : (
+              <span>{notifications.length} sent</span>
+            )}
+          </div>
           <div className="notification-popover-list">
             {notifications.length ? notifications.map((notification) => {
               const Icon = notificationChannelIcon[notification.channel] ?? Bell;
               return (
-                <div className="notification-item" key={notification.id}>
+                <button
+                  type="button"
+                  className={notification.read ? 'notification-item' : 'notification-item is-unread'}
+                  key={notification.id}
+                  onClick={() => !notification.read && void markNotificationsRead([notification.id])}
+                >
+                  {!notification.read && <span className="notification-unread-dot" aria-hidden="true" />}
                   <Icon aria-hidden="true" size={16} className="notification-item-icon" />
                   <div className="notification-item-body">
                     <strong>{notification.recipient}</strong>
                     <span>{notification.message}</span>
                     <small>{notification.createdAt}</small>
                   </div>
-                </div>
+                </button>
               );
             }) : <EmptyState title="No notifications yet" body="Status changes on a work item automatically text the customer (mock provider — no SMS account is connected yet)." />}
           </div>

@@ -15,7 +15,7 @@ import type {
   WorkItemUpdate,
 } from '../src/types';
 import { query, withTransaction } from './db';
-import { listNotifications, sendNotification } from './notifications';
+import { listNotifications, markNotificationsRead as markNotificationsReadInDb, sendNotification } from './notifications';
 
 interface CustomerRow {
   id: string;
@@ -543,6 +543,11 @@ export async function notifyCustomerNow(id: string): Promise<ServiceDeskState> {
     nowStamp(),
   );
 
+  return getServiceDeskState();
+}
+
+export async function markNotificationsRead(ids?: string[]): Promise<ServiceDeskState> {
+  await markNotificationsReadInDb(ids);
   return getServiceDeskState();
 }
 

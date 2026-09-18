@@ -11,6 +11,7 @@ import {
   createWorkItemRecord,
   deleteSavedReportRecord,
   loadServiceDeskState,
+  markNotificationsReadRecord,
   notifyCustomerNowRecord,
   recordInvoicePaymentRecord,
   resetServiceDeskState,
@@ -176,6 +177,13 @@ export function useServiceDesk() {
         return runApiMutation(() => serviceDeskApi.notifyCustomerNow(workItemId));
       }
       setState((current) => notifyCustomerNowRecord(current, workItemId));
+      return Promise.resolve();
+    },
+    markNotificationsRead: (ids?: string[]) => {
+      if (isApiPersistenceEnabled) {
+        return runApiMutation(() => serviceDeskApi.markNotificationsRead(ids));
+      }
+      setState((current) => markNotificationsReadRecord(current, ids));
       return Promise.resolve();
     },
     createSavedReport: (draft: SavedReportDraft, createdBy: string) => {

@@ -11,6 +11,7 @@ interface NotificationRow {
   status: Notification['status'];
   provider: string;
   created_at: string;
+  read: boolean;
 }
 
 interface NotificationRequest {
@@ -49,12 +50,21 @@ export function mapNotification(row: NotificationRow): Notification {
     status: row.status,
     provider: row.provider,
     createdAt: row.created_at,
+    read: row.read,
   };
 }
 
 export async function listNotifications(): Promise<Notification[]> {
   const result = await query<NotificationRow>('SELECT * FROM notifications ORDER BY id DESC');
   return result.rows.map(mapNotification);
+}
+
+export async function markNotificationsRead(ids?: string[]): Promise<void> {
+  if (ids && ids.length > 0) {
+    await query('UPDATE notifications SET read = true WHERE id = ANY($1)', [ids]);
+    return;
+  }
+  await query('UPDATE notifications SET read = true WHERE read = false');
 }
 
 let notificationSequence = 0;
@@ -80,5 +90,6 @@ export async function sendNotification(request: NotificationRequest, stamp: stri
     status: outcome.status,
     provider: outcome.provider,
     createdAt: stamp,
+    read: false,
   };
 }
