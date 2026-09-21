@@ -22,6 +22,7 @@ import {
   Moon,
   Plus,
   Receipt,
+  Search,
   Smartphone,
   Sun,
   UserPlus,
@@ -615,12 +616,12 @@ function WorkspaceContent(
       )}
 
       {activeView === 'new-user' && <NewUserForm currentUser={currentUser} pushToast={pushToast} />}
-      {activeView === 'users' && <UsersReport currentUser={currentUser} pushToast={pushToast} />}
+      {activeView === 'users' && <UsersReport currentUser={currentUser} pushToast={pushToast} navigate={navigate} />}
       {activeView === 'customers' && <CustomersPanel state={state} pushToast={pushToast} />}
       {activeView === 'technicians' && <TechniciansPanel state={state} />}
 
       {activeView === 'inventory-new' && <NewPartForm addInventoryPart={props.addInventoryPart} reset={props.reset} canReset={currentUser.profile === 'admin'} pushToast={pushToast} />}
-      {activeView === 'inventory-report' && <InventoryReport state={state} adjustInventory={adjustInventory} />}
+      {activeView === 'inventory-report' && <InventoryReport state={state} adjustInventory={adjustInventory} navigate={navigate} />}
 
       {activeView === 'wi-board' && <KanbanBoard workItems={state.workItems} updateWorkItem={updateWorkItem} pushToast={pushToast} />}
       {activeView === 'wi-new' && <NewWorkItemForm state={state} createWorkItem={createWorkItem} pushToast={pushToast} navigate={navigate} />}
@@ -645,7 +646,7 @@ function WorkspaceContent(
 
       {activeView === 'invoices-new' && <NewInvoiceForm state={state} createInvoice={createInvoice} pushToast={pushToast} navigate={navigate} />}
       {activeView === 'invoices-report' && (
-        <InvoicesReport state={state} updateInvoiceStatus={updateInvoiceStatus} recordInvoicePayment={recordInvoicePayment} pushToast={pushToast} />
+        <InvoicesReport state={state} updateInvoiceStatus={updateInvoiceStatus} recordInvoicePayment={recordInvoicePayment} pushToast={pushToast} navigate={navigate} />
       )}
 
       {activeView === 'catalog' && (
@@ -666,6 +667,31 @@ function WorkspaceContent(
         <RepairsPanel state={state} selectedCustomerId={selectedCustomerId} approveEstimate={approveEstimate} pushToast={pushToast} />
       )}
     </ModuleFrame>
+  );
+}
+
+function WorkItemStatusChart({ workItems }: { workItems: WorkItem[] }) {
+  const counts = statusFlow
+    .map((status) => ({ status, count: workItems.filter((item) => item.status === status).length }))
+    .filter((entry) => entry.count > 0);
+  const max = Math.max(1, ...counts.map((entry) => entry.count));
+
+  if (!counts.length) {
+    return <EmptyState title="No active work items" body="Create a work item to see the status breakdown." />;
+  }
+
+  return (
+    <div className="chart-widget">
+      {counts.map((entry) => (
+        <div className="chart-bar-row" key={entry.status}>
+          <span className="chart-bar-label">{entry.status}</span>
+          <div className="chart-bar-track">
+            <div className={`chart-bar-fill status-${entry.status.toLowerCase().replaceAll(' ', '-')}`} style={{ width: `${(entry.count / max) * 100}%` }} />
+          </div>
+          <span className="chart-bar-value">{entry.count}</span>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -703,6 +729,10 @@ function DashboardPanel({
           <MetricCard label="Invoices" value={String(state.invoices.length)} helper={`${currencyFormatter.format(metrics.invoicedRevenue)} total`} onClick={() => navigate('invoices')} />
           <MetricCard label="Parts" value={String(state.inventoryParts.length)} helper="Inventory SKUs" onClick={() => navigate('parts')} />
         </div>
+        <div className="creator-list-panel">
+          <ListHeader title="Work items by status" count={state.workItems.length} />
+          <WorkItemStatusChart workItems={state.workItems} />
+        </div>
         <div className="creator-record-grid">
           <DataGrid
             title="Recent work items"
@@ -727,19 +757,25 @@ function DashboardPanel({
   }
 
   return (
-    <div className="creator-record-grid">
-      <DataGrid
-        title="Recent work items"
-        columns={workItemGridColumns}
-        rows={state.workItems.slice(0, 6)}
-        onRowClick={(item) => navigate('wi-all', item.id)}
-      />
-      <DataGrid
-        title="Low stock alerts"
-        columns={lowStockColumns}
-        rows={lowStockRows}
-        onRowClick={() => navigate(stockSectionId)}
-      />
+    <div className="creator-page">
+      <div className="creator-list-panel">
+        <ListHeader title="Work items by status" count={state.workItems.length} />
+        <WorkItemStatusChart workItems={state.workItems} />
+      </div>
+      <div className="creator-record-grid">
+        <DataGrid
+          title="Recent work items"
+          columns={workItemGridColumns}
+          rows={state.workItems.slice(0, 6)}
+          onRowClick={(item) => navigate('wi-all', item.id)}
+        />
+        <DataGrid
+          title="Low stock alerts"
+          columns={lowStockColumns}
+          rows={lowStockRows}
+          onRowClick={() => navigate(stockSectionId)}
+        />
+      </div>
     </div>
   );
 }
@@ -817,7 +853,7 @@ function NewUserForm({ currentUser, pushToast }: { currentUser: AuthUser; pushTo
   );
 }
 
-function UsersReport({ currentUser, pushToast }: { currentUser: AuthUser; pushToast: (message: ReactNode, tone?: ToastTone) => void }) {
+function UsersReport({ currentUser, pushToast, navigate }: { currentUser: AuthUser; pushToast: (message: ReactNode, tone?: ToastTone) => void; navigate: (id: string) => void }) {
   const [users, setUsers] = useState<ManagedUser[]>(() => (isApiPersistenceEnabled ? [] : loadLocalManagedUsers(currentUser)));
   const [userError, setUserError] = useState<string | null>(null);
 
@@ -854,9 +890,9 @@ function UsersReport({ currentUser, pushToast }: { currentUser: AuthUser; pushTo
   };
 
   const columns: DataGridColumn<ManagedUser>[] = [
-    { key: 'name', label: 'Name', render: (managedUser) => <strong>{managedUser.name}</strong>, sortValue: (managedUser) => managedUser.name },
-    { key: 'email', label: 'Email', render: (managedUser) => managedUser.email, sortValue: (managedUser) => managedUser.email },
-    { key: 'profile', label: 'Profile', render: (managedUser) => <span className="pill">{managedUser.profile}</span>, sortValue: (managedUser) => managedUser.profile },
+    { key: 'name', label: 'Name', render: (managedUser) => <strong>{managedUser.name}</strong>, sortValue: (managedUser) => managedUser.name, searchValue: (managedUser) => managedUser.name },
+    { key: 'email', label: 'Email', render: (managedUser) => managedUser.email, sortValue: (managedUser) => managedUser.email, searchValue: (managedUser) => managedUser.email },
+    { key: 'profile', label: 'Profile', render: (managedUser) => <span className="pill">{managedUser.profile}</span>, sortValue: (managedUser) => managedUser.profile, searchValue: (managedUser) => managedUser.profile },
     { key: 'status', label: 'Status', render: (managedUser) => <span className={managedUser.active ? 'stock-ok' : 'muted'}>{managedUser.active ? 'Active' : 'Inactive'}</span>, sortValue: (managedUser) => (managedUser.active ? 0 : 1) },
     {
       key: 'action',
@@ -872,16 +908,16 @@ function UsersReport({ currentUser, pushToast }: { currentUser: AuthUser; pushTo
   return (
     <>
       {userError && <div className="login-error">{userError}</div>}
-      <DataGrid title="Users report" columns={columns} rows={users} />
+      <DataGrid title="Users report" columns={columns} rows={users} onAddNew={() => navigate('new-user')} addLabel="New user" />
     </>
   );
 }
 
 function CustomersPanel({ state, pushToast }: { state: DeskActions['state']; pushToast: (message: ReactNode, tone?: ToastTone) => void }) {
   const columns: DataGridColumn<Customer>[] = [
-    { key: 'name', label: 'Name', render: (customer) => <strong>{customer.name}</strong>, sortValue: (customer) => customer.name },
-    { key: 'phone', label: 'Phone', render: (customer) => customer.phone, sortValue: (customer) => customer.phone },
-    { key: 'email', label: 'Email', render: (customer) => customer.email, sortValue: (customer) => customer.email },
+    { key: 'name', label: 'Name', render: (customer) => <strong>{customer.name}</strong>, sortValue: (customer) => customer.name, searchValue: (customer) => customer.name },
+    { key: 'phone', label: 'Phone', render: (customer) => customer.phone, sortValue: (customer) => customer.phone, searchValue: (customer) => customer.phone },
+    { key: 'email', label: 'Email', render: (customer) => customer.email, sortValue: (customer) => customer.email, searchValue: (customer) => customer.email },
     { key: 'repairs', label: 'Repairs', render: (customer) => state.workItems.filter((item) => item.customerId === customer.id).length, sortValue: (customer) => state.workItems.filter((item) => item.customerId === customer.id).length },
   ];
 
@@ -903,9 +939,9 @@ function CustomersPanel({ state, pushToast }: { state: DeskActions['state']; pus
 
 function TechniciansPanel({ state }: { state: DeskActions['state'] }) {
   const columns: DataGridColumn<Technician>[] = [
-    { key: 'name', label: 'Name', render: (tech) => <strong>{tech.name}</strong>, sortValue: (tech) => tech.name },
-    { key: 'email', label: 'Email', render: (tech) => tech.email, sortValue: (tech) => tech.email },
-    { key: 'specialties', label: 'Specialties', render: (tech) => tech.specialties.join(', ') },
+    { key: 'name', label: 'Name', render: (tech) => <strong>{tech.name}</strong>, sortValue: (tech) => tech.name, searchValue: (tech) => tech.name },
+    { key: 'email', label: 'Email', render: (tech) => tech.email, sortValue: (tech) => tech.email, searchValue: (tech) => tech.email },
+    { key: 'specialties', label: 'Specialties', render: (tech) => tech.specialties.join(', '), searchValue: (tech) => tech.specialties.join(', ') },
     {
       key: 'active',
       label: 'Active jobs',
@@ -971,11 +1007,13 @@ function InvoicesReport({
   updateInvoiceStatus,
   recordInvoicePayment,
   pushToast,
+  navigate,
 }: {
   state: DeskActions['state'];
   updateInvoiceStatus: DeskActions['updateInvoiceStatus'];
   recordInvoicePayment: DeskActions['recordInvoicePayment'];
   pushToast: (message: ReactNode, tone?: ToastTone) => void;
+  navigate: (id: string) => void;
 }) {
   const changeInvoiceStatus = (invoiceId: string, status: InvoiceStatus) => {
     if (status === 'Void' && !window.confirm('Void this invoice? This cannot be undone.')) {
@@ -991,7 +1029,7 @@ function InvoicesReport({
     pushToast(`Payment recorded for ${invoiceId} via ${payment.method}.`);
   };
 
-  return <InvoiceList invoices={state.invoices} updateInvoiceStatus={changeInvoiceStatus} recordPayment={submitPayment} pushToast={pushToast} />;
+  return <InvoiceList invoices={state.invoices} updateInvoiceStatus={changeInvoiceStatus} recordPayment={submitPayment} pushToast={pushToast} navigate={navigate} />;
 }
 
 
@@ -1423,11 +1461,11 @@ function NewPartForm({
   );
 }
 
-function InventoryReport({ state, adjustInventory }: { state: DeskActions['state']; adjustInventory: DeskActions['adjustInventory'] }) {
+function InventoryReport({ state, adjustInventory, navigate }: { state: DeskActions['state']; adjustInventory: DeskActions['adjustInventory']; navigate: (id: string) => void }) {
   const columns: DataGridColumn<InventoryPart & { id: string }>[] = [
-    { key: 'name', label: 'Name', render: (part) => <strong>{part.name}</strong>, sortValue: (part) => part.name },
-    { key: 'sku', label: 'SKU', render: (part) => part.sku, sortValue: (part) => part.sku },
-    { key: 'device', label: 'Device', render: (part) => part.compatibleWith.join(', ') },
+    { key: 'name', label: 'Name', render: (part) => <strong>{part.name}</strong>, sortValue: (part) => part.name, searchValue: (part) => part.name },
+    { key: 'sku', label: 'SKU', render: (part) => part.sku, sortValue: (part) => part.sku, searchValue: (part) => part.sku },
+    { key: 'device', label: 'Device', render: (part) => part.compatibleWith.join(', '), searchValue: (part) => part.compatibleWith.join(', ') },
     { key: 'stock', label: 'Stock', render: (part) => <span className={part.quantity <= part.reorderLevel ? 'stock-low' : 'stock-ok'}>{part.quantity} in stock</span>, sortValue: (part) => part.quantity },
     { key: 'reorder', label: 'Reorder at', render: (part) => part.reorderLevel, sortValue: (part) => part.reorderLevel },
     { key: 'cost', label: 'Cost', render: (part) => currencyFormatter.format(part.unitCost), sortValue: (part) => part.unitCost },
@@ -1443,7 +1481,15 @@ function InventoryReport({ state, adjustInventory }: { state: DeskActions['state
     },
   ];
 
-  return <DataGrid title="Inventory report" columns={columns} rows={state.inventoryParts.map((part) => ({ ...part, id: part.sku }))} />;
+  return (
+    <DataGrid
+      title="Inventory report"
+      columns={columns}
+      rows={state.inventoryParts.map((part) => ({ ...part, id: part.sku }))}
+      onAddNew={() => navigate('inventory-new')}
+      addLabel="New part"
+    />
+  );
 }
 
 function InventoryView({ state, adjustInventory, addInventoryPart, reset, canManage, canReset, pushToast }: DeskActions & { canManage: boolean; canReset: boolean; pushToast: (message: ReactNode, tone?: ToastTone) => void }) {
@@ -1505,11 +1551,13 @@ function InvoiceList({
   updateInvoiceStatus,
   recordPayment,
   pushToast,
+  navigate,
 }: {
   invoices: Invoice[];
   updateInvoiceStatus: DeskActions['updateInvoiceStatus'];
   recordPayment: (invoiceId: string, payment: InvoicePaymentDraft) => Promise<void>;
   pushToast: (message: ReactNode, tone?: ToastTone) => void;
+  navigate: (id: string) => void;
 }) {
   const exportCsv = () => {
     if (isApiPersistenceEnabled) {
@@ -1521,7 +1569,14 @@ function InvoiceList({
 
   return (
     <div className="creator-list-panel">
-      <div className="list-header"><h3>Invoice register</h3><div className="card-actions"><span>{invoices.length} records</span><button type="button" className="secondary-dark-button icon-button" onClick={exportCsv}><Download aria-hidden="true" size={16} /><span>Export CSV</span></button></div></div>
+      <div className="list-header">
+        <h3>Invoice register</h3>
+        <div className="card-actions">
+          <span>{invoices.length} records</span>
+          <button type="button" className="secondary-dark-button icon-button" onClick={exportCsv}><Download aria-hidden="true" size={16} /><span>Export CSV</span></button>
+          <button type="button" className="icon-toolbar-button is-primary" aria-label="New invoice" onClick={() => navigate('invoices-new')}><Plus aria-hidden="true" size={16} /></button>
+        </div>
+      </div>
       {invoices.map((invoice) => (
         <InvoiceRow key={invoice.id} invoice={invoice} updateInvoiceStatus={updateInvoiceStatus} recordPayment={recordPayment} />
       ))}
@@ -1941,6 +1996,7 @@ interface DataGridColumn<T> {
   label: string;
   render: (row: T) => ReactNode;
   sortValue?: (row: T) => string | number;
+  searchValue?: (row: T) => string;
 }
 
 function DataGrid<T extends { id: string }>({
@@ -1951,6 +2007,8 @@ function DataGrid<T extends { id: string }>({
   selectedId,
   toolbar,
   filter,
+  onAddNew,
+  addLabel = 'Add record',
   emptyTitle = 'No records',
   emptyBody = 'This report does not have records yet.',
 }: {
@@ -1961,25 +2019,38 @@ function DataGrid<T extends { id: string }>({
   selectedId?: string;
   toolbar?: ReactNode;
   filter?: ReactNode;
+  onAddNew?: () => void;
+  addLabel?: string;
   emptyTitle?: string;
   emptyBody?: string;
 }) {
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' } | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const searchableColumns = useMemo(() => columns.filter((column) => column.searchValue), [columns]);
+
+  const filteredRows = useMemo(() => {
+    if (!query.trim() || searchableColumns.length === 0) {
+      return rows;
+    }
+    const needle = query.trim().toLowerCase();
+    return rows.filter((row) => searchableColumns.some((column) => column.searchValue!(row).toLowerCase().includes(needle)));
+  }, [rows, query, searchableColumns]);
 
   const sortedRows = useMemo(() => {
     const column = sort ? columns.find((candidate) => candidate.key === sort.key) : undefined;
     if (!sort || !column?.sortValue) {
-      return rows;
+      return filteredRows;
     }
     const sortValue = column.sortValue;
-    const sorted = [...rows].sort((a, b) => {
+    const sorted = [...filteredRows].sort((a, b) => {
       const left = sortValue(a);
       const right = sortValue(b);
       return left < right ? -1 : left > right ? 1 : 0;
     });
     return sort.dir === 'desc' ? sorted.reverse() : sorted;
-  }, [rows, sort, columns]);
+  }, [filteredRows, sort, columns]);
 
   const toggleSort = (key: string) => {
     setSort((current) => {
@@ -1990,8 +2061,8 @@ function DataGrid<T extends { id: string }>({
     });
   };
 
-  const allChecked = rows.length > 0 && checked.size === rows.length;
-  const toggleAll = () => setChecked(allChecked ? new Set() : new Set(rows.map((row) => row.id)));
+  const allChecked = sortedRows.length > 0 && checked.size === sortedRows.length;
+  const toggleAll = () => setChecked(allChecked ? new Set() : new Set(sortedRows.map((row) => row.id)));
   const toggleOne = (id: string) => setChecked((current) => {
     const next = new Set(current);
     if (next.has(id)) {
@@ -2004,42 +2075,78 @@ function DataGrid<T extends { id: string }>({
 
   return (
     <div className="creator-list-panel data-grid-panel">
-      <div className="list-header"><h3>{title}</h3><div className="card-actions"><span>{rows.length} records</span>{toolbar}</div></div>
+      <div className="list-header">
+        <h3>{title}</h3>
+        <div className="card-actions">
+          <span>{rows.length} records</span>
+          {searchableColumns.length > 0 && (
+            <button
+              type="button"
+              className={searchOpen ? 'icon-toolbar-button is-active' : 'icon-toolbar-button'}
+              aria-label={searchOpen ? 'Close search' : `Search ${title}`}
+              aria-pressed={searchOpen}
+              onClick={() => setSearchOpen((open) => !open)}
+            >
+              <Search aria-hidden="true" size={15} />
+            </button>
+          )}
+          {toolbar}
+          {onAddNew && (
+            <button type="button" className="icon-toolbar-button is-primary" aria-label={addLabel} onClick={onAddNew}>
+              <Plus aria-hidden="true" size={16} />
+            </button>
+          )}
+        </div>
+      </div>
+      {searchOpen && searchableColumns.length > 0 && (
+        <div className="data-grid-filter">
+          <input
+            className="search-input"
+            autoFocus
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={`Search ${title.toLowerCase()}`}
+            aria-label={`Search ${title}`}
+          />
+        </div>
+      )}
       {filter}
       {rows.length ? (
-        <div className="data-grid">
-          <table className="data-grid-table">
-            <thead>
-              <tr>
-                <th className="data-grid-check-col"><input type="checkbox" aria-label="Select all rows" checked={allChecked} onChange={toggleAll} /></th>
-                {columns.map((column) => (
-                  <th key={column.key}>
-                    {column.label}
-                    {column.sortValue && (
-                      <button type="button" className="data-grid-sort" aria-label={`Sort by ${column.label}`} onClick={() => toggleSort(column.key)}>
-                        <ChevronDown aria-hidden="true" size={13} />
-                      </button>
-                    )}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {sortedRows.map((row) => (
-                <tr
-                  key={row.id}
-                  className={[onRowClick && 'is-clickable', selectedId === row.id && 'is-active'].filter(Boolean).join(' ')}
-                  onClick={() => onRowClick?.(row)}
-                >
-                  <td className="data-grid-check-col" onClick={(event) => event.stopPropagation()}>
-                    <input type="checkbox" aria-label={`Select row ${row.id}`} checked={checked.has(row.id)} onChange={() => toggleOne(row.id)} />
-                  </td>
-                  {columns.map((column) => <td key={column.key}>{column.render(row)}</td>)}
+        sortedRows.length ? (
+          <div className="data-grid">
+            <table className="data-grid-table">
+              <thead>
+                <tr>
+                  <th className="data-grid-check-col"><input type="checkbox" aria-label="Select all rows" checked={allChecked} onChange={toggleAll} /></th>
+                  {columns.map((column) => (
+                    <th key={column.key}>
+                      {column.label}
+                      {column.sortValue && (
+                        <button type="button" className="data-grid-sort" aria-label={`Sort by ${column.label}`} onClick={() => toggleSort(column.key)}>
+                          <ChevronDown aria-hidden="true" size={13} />
+                        </button>
+                      )}
+                    </th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {sortedRows.map((row) => (
+                  <tr
+                    key={row.id}
+                    className={[onRowClick && 'is-clickable', selectedId === row.id && 'is-active'].filter(Boolean).join(' ')}
+                    onClick={() => onRowClick?.(row)}
+                  >
+                    <td className="data-grid-check-col" onClick={(event) => event.stopPropagation()}>
+                      <input type="checkbox" aria-label={`Select row ${row.id}`} checked={checked.has(row.id)} onChange={() => toggleOne(row.id)} />
+                    </td>
+                    {columns.map((column) => <td key={column.key}>{column.render(row)}</td>)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : <EmptyState title="No matches" body="Try a different search term." />
       ) : <EmptyState title={emptyTitle} body={emptyBody} />}
     </div>
   );

@@ -271,6 +271,11 @@ button.metric-card:focus-visible { outline-offset: -3px; }
 .data-grid-panel .empty-state { margin: 0 16px 16px; }
 .data-grid-filter { padding: 10px 16px 0; }
 .data-grid-filter .search-input { margin-bottom: 0; }
+.icon-toolbar-button { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; flex: none; border-radius: 9px; border: 1px solid var(--border); background: var(--surface); color: var(--muted-strong); cursor: pointer; transition: background-color .1s ease-out, border-color .1s ease-out, color .1s ease-out; }
+.icon-toolbar-button:hover { background: var(--surface-subtle); border-color: var(--primary); color: var(--primary-strong); }
+.icon-toolbar-button.is-active { background: var(--primary-soft); border-color: var(--primary); color: var(--primary-strong); }
+.icon-toolbar-button.is-primary { background: var(--primary); border-color: var(--primary); color: var(--on-primary); box-shadow: var(--shadow-sm); }
+.icon-toolbar-button.is-primary:hover { background: var(--primary-strong); border-color: var(--primary-strong); color: var(--on-primary); }
 .data-grid { overflow-x: auto; margin-top: 12px; }
 .data-grid-table { width: 100%; border-collapse: collapse; font-size: var(--font-sm); }
 .data-grid-table thead th { background: var(--surface-subtle); text-align: left; padding: 9px 14px; font-weight: 800; color: var(--muted-strong); border-top: 1px solid var(--border-soft); border-bottom: 1px solid var(--border); white-space: nowrap; }
@@ -297,6 +302,18 @@ button.metric-card:focus-visible { outline-offset: -3px; }
 .status.customer-approved, .status.ready-for-pickup { background: var(--active-bg); color: var(--active-text); }
 .status.delivered, .status.paid { background: var(--success-bg); color: var(--success-text); }
 .status.cancelled, .status.void { background: var(--danger-bg); color: var(--danger-text); }
+.chart-widget { display: grid; gap: 11px; padding: 4px 2px 2px; }
+.chart-bar-row { display: grid; grid-template-columns: minmax(90px, 130px) 1fr 28px; align-items: center; gap: 10px; }
+.chart-bar-label { font-size: var(--font-xs); font-weight: 750; color: var(--muted-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chart-bar-track { height: 10px; border-radius: 999px; background: var(--surface-subtle); overflow: hidden; }
+.chart-bar-fill { height: 100%; border-radius: 999px; transition: width .3s ease-out; }
+.chart-bar-value { font-size: var(--font-xs); font-weight: 800; color: var(--text-strong); text-align: right; }
+.chart-bar-fill.status-new-request { background: var(--muted-strong); }
+.chart-bar-fill.status-assigned, .chart-bar-fill.status-in-repair { background: var(--primary); }
+.chart-bar-fill.status-diagnosis, .chart-bar-fill.status-quality-check { background: var(--info-text); }
+.chart-bar-fill.status-estimate-shared, .chart-bar-fill.status-waiting-for-parts { background: var(--warning-text); }
+.chart-bar-fill.status-customer-approved, .chart-bar-fill.status-ready-for-pickup { background: var(--active-text); }
+.chart-bar-fill.status-delivered { background: var(--success-text); }
 .workitem-summary h3, .service-card h3 { margin: 11px 0 8px; color: var(--text-strong); font-size: var(--font-lg); }
 .workitem-summary p, .service-card p { color: var(--muted-strong); line-height: 1.55; }
 dl { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 14px 0; }
