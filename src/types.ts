@@ -41,7 +41,14 @@ export interface ServiceCategory {
   averageTurnaround: string;
 }
 
-export interface Technician {
+export interface AuditFields {
+  createdAt: string;
+  createdBy: string;
+  updatedAt: string;
+  updatedBy: string;
+}
+
+export interface Technician extends AuditFields {
   id: string;
   name: string;
   email: string;
@@ -49,14 +56,14 @@ export interface Technician {
   activeJobs: number;
 }
 
-export interface Customer {
+export interface Customer extends AuditFields {
   id: string;
   name: string;
   phone: string;
   email: string;
 }
 
-export interface InventoryPart {
+export interface InventoryPart extends AuditFields {
   sku: string;
   name: string;
   compatibleWith: DeviceType[];
@@ -95,7 +102,9 @@ export interface WorkItem {
   approvedByCustomer: boolean;
   partsRequired: string[];
   createdAt: string;
+  createdBy: string;
   updatedAt: string;
+  updatedBy: string;
   promisedBy: string;
   updates: WorkItemUpdate[];
 }
@@ -113,7 +122,7 @@ export interface WorkItemDraft {
   assignedTechnicianId: string;
 }
 
-export interface Invoice {
+export interface Invoice extends AuditFields {
   id: string;
   workItemId: string;
   customerId: string;
@@ -178,11 +187,18 @@ export interface SavedReportDraft {
 
 export interface ServiceDeskState {
   customers: Customer[];
+  technicians: Technician[];
   workItems: WorkItem[];
   inventoryParts: InventoryPart[];
   invoices: Invoice[];
   notifications: Notification[];
   savedReports: SavedReport[];
+}
+
+export interface TechnicianDraft {
+  name: string;
+  email: string;
+  specialties: DeviceType[];
 }
 
 export interface AuthUser {
@@ -197,6 +213,9 @@ export interface AuthUser {
 export interface ManagedUser extends AuthUser {
   active: boolean;
   createdAt: string;
+  createdBy: string;
+  updatedAt: string;
+  updatedBy: string;
 }
 
 export interface UserDraft {

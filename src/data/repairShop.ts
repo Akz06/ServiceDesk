@@ -66,16 +66,18 @@ export const serviceCategories: ServiceCategory[] = [
   },
 ];
 
+const seedStamp = '2026-09-10 09:00';
+
 export const technicians: Technician[] = [
-  { id: 'tech-arun', name: 'Arun Kumar', email: 'arun@servicedesk.local', specialties: ['Laptop', 'Desktop'], activeJobs: 2 },
-  { id: 'tech-neha', name: 'Neha Sharma', email: 'neha@servicedesk.local', specialties: ['Mobile', 'Tablet', 'Console'], activeJobs: 3 },
-  { id: 'tech-ravi', name: 'Ravi Menon', email: 'ravi@servicedesk.local', specialties: ['Desktop', 'Other Electronics', 'Accessory'], activeJobs: 1 },
+  { id: 'tech-arun', name: 'Arun Kumar', email: 'arun@servicedesk.local', specialties: ['Laptop', 'Desktop'], activeJobs: 2, createdAt: seedStamp, createdBy: 'System', updatedAt: seedStamp, updatedBy: 'System' },
+  { id: 'tech-neha', name: 'Neha Sharma', email: 'neha@servicedesk.local', specialties: ['Mobile', 'Tablet', 'Console'], activeJobs: 3, createdAt: seedStamp, createdBy: 'System', updatedAt: seedStamp, updatedBy: 'System' },
+  { id: 'tech-ravi', name: 'Ravi Menon', email: 'ravi@servicedesk.local', specialties: ['Desktop', 'Other Electronics', 'Accessory'], activeJobs: 1, createdAt: seedStamp, createdBy: 'System', updatedAt: seedStamp, updatedBy: 'System' },
 ];
 
 export const initialCustomers: Customer[] = [
-  { id: 'CUST-2001', name: 'Maya Patel', phone: '+1 555 0101', email: 'maya@example.com' },
-  { id: 'CUST-2002', name: 'Chris Wong', phone: '+1 555 0102', email: 'chris@example.com' },
-  { id: 'CUST-2003', name: 'Olivia Smith', phone: '+1 555 0103', email: 'olivia@example.com' },
+  { id: 'CUST-2001', name: 'Maya Patel', phone: '+1 555 0101', email: 'maya@example.com', createdAt: seedStamp, createdBy: 'System', updatedAt: seedStamp, updatedBy: 'System' },
+  { id: 'CUST-2002', name: 'Chris Wong', phone: '+1 555 0102', email: 'chris@example.com', createdAt: seedStamp, createdBy: 'System', updatedAt: seedStamp, updatedBy: 'System' },
+  { id: 'CUST-2003', name: 'Olivia Smith', phone: '+1 555 0103', email: 'olivia@example.com', createdAt: seedStamp, createdBy: 'System', updatedAt: seedStamp, updatedBy: 'System' },
 ];
 
 export const initialWorkItems: WorkItem[] = [
@@ -102,7 +104,9 @@ export const initialWorkItems: WorkItem[] = [
     approvedByCustomer: false,
     partsRequired: ['BAT-USB-C-65W'],
     createdAt: '2026-09-12 09:10',
+    createdBy: 'Agent',
     updatedAt: '2026-09-12 10:05',
+    updatedBy: 'Technician',
     promisedBy: 'Today 5:00 PM',
     updates: [
       { id: 'UP-1', actor: 'Agent', message: 'Request received online.', at: '2026-09-12 09:10' },
@@ -133,7 +137,9 @@ export const initialWorkItems: WorkItem[] = [
     approvedByCustomer: true,
     partsRequired: ['LCD-IPH-14-BLK'],
     createdAt: '2026-09-12 10:20',
+    createdBy: 'Agent',
     updatedAt: '2026-09-12 12:30',
+    updatedBy: 'Technician',
     promisedBy: 'Tomorrow 12:00 PM',
     updates: [
       { id: 'UP-4', actor: 'Agent', message: 'Walk-in request created.', at: '2026-09-12 10:20' },
@@ -164,7 +170,9 @@ export const initialWorkItems: WorkItem[] = [
     approvedByCustomer: false,
     partsRequired: ['PSU-750W-GOLD'],
     createdAt: '2026-09-11 15:40',
+    createdBy: 'Agent',
     updatedAt: '2026-09-12 09:00',
+    updatedBy: 'Technician',
     promisedBy: 'Friday 6:00 PM',
     updates: [
       { id: 'UP-7', actor: 'Agent', message: 'Request received online.', at: '2026-09-11 15:40' },
@@ -175,12 +183,12 @@ export const initialWorkItems: WorkItem[] = [
 ];
 
 export const inventoryParts: InventoryPart[] = [
-  { sku: 'BAT-USB-C-65W', name: 'USB-C 65W Adapter', compatibleWith: ['Laptop', 'Tablet'], quantity: 14, reorderLevel: 6, unitCost: 34 },
-  { sku: 'LCD-IPH-14-BLK', name: 'iPhone 14 Display - Black', compatibleWith: ['Mobile'], quantity: 4, reorderLevel: 5, unitCost: 92 },
-  { sku: 'SSD-NVME-1TB', name: '1TB NVMe SSD', compatibleWith: ['Laptop', 'Desktop'], quantity: 9, reorderLevel: 4, unitCost: 58 },
-  { sku: 'HDMI-CONSOLE-MOD', name: 'Console HDMI Port Module', compatibleWith: ['Console', 'Other Electronics'], quantity: 2, reorderLevel: 3, unitCost: 16 },
-  { sku: 'PSU-750W-GOLD', name: '750W Gold Power Supply', compatibleWith: ['Desktop'], quantity: 1, reorderLevel: 2, unitCost: 88 },
-  { sku: 'TAB-GLASS-11', name: '11-inch Tablet Glass', compatibleWith: ['Tablet'], quantity: 8, reorderLevel: 3, unitCost: 44 },
+  { sku: 'BAT-USB-C-65W', name: 'USB-C 65W Adapter', compatibleWith: ['Laptop', 'Tablet'], quantity: 14, reorderLevel: 6, unitCost: 34, createdAt: seedStamp, createdBy: 'System', updatedAt: seedStamp, updatedBy: 'System' },
+  { sku: 'LCD-IPH-14-BLK', name: 'iPhone 14 Display - Black', compatibleWith: ['Mobile'], quantity: 4, reorderLevel: 5, unitCost: 92, createdAt: seedStamp, createdBy: 'System', updatedAt: seedStamp, updatedBy: 'System' },
+  { sku: 'SSD-NVME-1TB', name: '1TB NVMe SSD', compatibleWith: ['Laptop', 'Desktop'], quantity: 9, reorderLevel: 4, unitCost: 58, createdAt: seedStamp, createdBy: 'System', updatedAt: seedStamp, updatedBy: 'System' },
+  { sku: 'HDMI-CONSOLE-MOD', name: 'Console HDMI Port Module', compatibleWith: ['Console', 'Other Electronics'], quantity: 2, reorderLevel: 3, unitCost: 16, createdAt: seedStamp, createdBy: 'System', updatedAt: seedStamp, updatedBy: 'System' },
+  { sku: 'PSU-750W-GOLD', name: '750W Gold Power Supply', compatibleWith: ['Desktop'], quantity: 1, reorderLevel: 2, unitCost: 88, createdAt: seedStamp, createdBy: 'System', updatedAt: seedStamp, updatedBy: 'System' },
+  { sku: 'TAB-GLASS-11', name: '11-inch Tablet Glass', compatibleWith: ['Tablet'], quantity: 8, reorderLevel: 3, unitCost: 44, createdAt: seedStamp, createdBy: 'System', updatedAt: seedStamp, updatedBy: 'System' },
 ];
 
 export const initialInvoices: Invoice[] = [
@@ -199,11 +207,16 @@ export const initialInvoices: Invoice[] = [
     paymentMethod: '',
     paymentReference: '',
     notes: 'Display replacement and speaker cleaning.',
+    createdAt: '2026-09-12 12:45',
+    createdBy: 'Agent',
+    updatedAt: '2026-09-12 12:45',
+    updatedBy: 'Agent',
   },
 ];
 
 export const initialServiceDeskState: ServiceDeskState = {
   customers: initialCustomers,
+  technicians,
   workItems: initialWorkItems,
   inventoryParts,
   invoices: initialInvoices,

@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS technicians (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  email TEXT NOT NULL,
+  specialties TEXT[] NOT NULL DEFAULT '{}',
+  active_jobs INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

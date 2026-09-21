@@ -29,7 +29,7 @@ describe('App workflow', () => {
     expect(screen.getByRole('button', { name: /^work items$/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /my jobs/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /my repairs/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /switch to dark mode/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^logout$/i })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /my jobs/i }));
     expect(screen.getByRole('heading', { name: /^my jobs$/i })).toBeInTheDocument();
@@ -41,8 +41,7 @@ describe('App workflow', () => {
     expect(screen.queryByRole('button', { name: /technician module/i })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /^work items$/i }));
-    const sections = screen.getByRole('navigation', { name: /sections/i });
-    await user.click(within(sections).getByRole('button', { name: /new work item/i }));
+    await user.click(screen.getByRole('button', { name: /new work item/i }));
     expect(screen.getByRole('heading', { name: /create a work item/i })).toBeInTheDocument();
 
     await user.type(screen.getByLabelText(/customer name/i), 'Asha Rao');
@@ -60,6 +59,7 @@ describe('App workflow', () => {
     const user = await loginAs('customer@servicedesk.local', 'Customer@12345');
 
     await user.selectOptions(screen.getByLabelText(/^customer$/i), 'CUST-2003');
+    await user.click(screen.getByText('Custom Gaming PC'));
     await user.click(screen.getByRole('button', { name: /approve estimate/i }));
 
     expect(screen.getByText(/customer approved the shared estimate/i)).toBeInTheDocument();

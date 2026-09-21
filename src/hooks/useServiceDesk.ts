@@ -1,15 +1,21 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { InventoryPart, InvoiceDraft, InvoicePaymentDraft, InvoiceStatus, SavedReportDraft, ServiceDeskState, UserRole, WorkItem, WorkItemDraft } from '../types';
+import type { Customer, InventoryPart, InvoiceDraft, InvoicePaymentDraft, InvoiceStatus, SavedReportDraft, ServiceDeskState, TechnicianDraft, UserRole, WorkItem, WorkItemDraft } from '../types';
 import { isApiPersistenceEnabled, serviceDeskApi } from '../services/apiClient';
 import {
   addInventoryPartRecord,
+  addTechnicianRecord,
   adjustInventoryRecord,
   approveEstimateRecord,
   cancelWorkItemRecord,
   createInvoiceRecord,
   createSavedReportRecord,
   createWorkItemRecord,
+  deleteCustomerRecord,
+  deleteInventoryPartRecord,
+  deleteInvoiceRecord,
   deleteSavedReportRecord,
+  deleteTechnicianRecord,
+  deleteWorkItemRecord,
   loadServiceDeskState,
   markNotificationsReadRecord,
   notifyCustomerNowRecord,
@@ -17,7 +23,9 @@ import {
   resetServiceDeskState,
   saveServiceDeskState,
   STORAGE_KEY,
+  updateCustomerRecord,
   updateInvoiceStatusRecord,
+  updateTechnicianRecord,
   updateWorkItemRecord,
 } from '../services/serviceDeskStore';
 
@@ -104,11 +112,11 @@ export function useServiceDesk() {
     isLoading,
     error,
     refresh: syncFromApi,
-    createWorkItem: (draft: WorkItemDraft) => {
+    createWorkItem: (draft: WorkItemDraft, actorName: string) => {
       if (isApiPersistenceEnabled) {
         return runApiMutation(() => serviceDeskApi.createWorkItem(draft));
       }
-      setState((current) => createWorkItemRecord(current, draft));
+      setState((current) => createWorkItemRecord(current, draft, actorName));
       return Promise.resolve();
     },
     updateWorkItem: (
@@ -121,6 +129,13 @@ export function useServiceDesk() {
         return runApiMutation(() => serviceDeskApi.updateWorkItem(id, patch, actor, message));
       }
       setState((current) => updateWorkItemRecord(current, id, patch, actor, message));
+      return Promise.resolve();
+    },
+    deleteWorkItem: (id: string) => {
+      if (isApiPersistenceEnabled) {
+        return runApiMutation(() => serviceDeskApi.deleteWorkItem(id));
+      }
+      setState((current) => deleteWorkItemRecord(current, id));
       return Promise.resolve();
     },
     approveEstimate: (id: string) => {
@@ -144,32 +159,81 @@ export function useServiceDesk() {
       setState((current) => adjustInventoryRecord(current, sku, delta));
       return Promise.resolve();
     },
-    addInventoryPart: (part: InventoryPart) => {
+    addInventoryPart: (part: InventoryPart, actor: string) => {
       if (isApiPersistenceEnabled) {
         return runApiMutation(() => serviceDeskApi.addInventoryPart(part));
       }
-      setState((current) => addInventoryPartRecord(current, part));
+      setState((current) => addInventoryPartRecord(current, part, actor));
       return Promise.resolve();
     },
-    createInvoice: (draft: InvoiceDraft) => {
+    deleteInventoryPart: (sku: string) => {
+      if (isApiPersistenceEnabled) {
+        return runApiMutation(() => serviceDeskApi.deleteInventoryPart(sku));
+      }
+      setState((current) => deleteInventoryPartRecord(current, sku));
+      return Promise.resolve();
+    },
+    updateCustomer: (id: string, patch: Pick<Customer, 'name' | 'phone' | 'email'>, actor: string) => {
+      if (isApiPersistenceEnabled) {
+        return runApiMutation(() => serviceDeskApi.updateCustomer(id, patch));
+      }
+      setState((current) => updateCustomerRecord(current, id, patch, actor));
+      return Promise.resolve();
+    },
+    deleteCustomer: (id: string) => {
+      if (isApiPersistenceEnabled) {
+        return runApiMutation(() => serviceDeskApi.deleteCustomer(id));
+      }
+      setState((current) => deleteCustomerRecord(current, id));
+      return Promise.resolve();
+    },
+    addTechnician: (draft: TechnicianDraft, actor: string) => {
+      if (isApiPersistenceEnabled) {
+        return runApiMutation(() => serviceDeskApi.addTechnician(draft));
+      }
+      setState((current) => addTechnicianRecord(current, draft, actor));
+      return Promise.resolve();
+    },
+    updateTechnician: (id: string, patch: TechnicianDraft, actor: string) => {
+      if (isApiPersistenceEnabled) {
+        return runApiMutation(() => serviceDeskApi.updateTechnician(id, patch));
+      }
+      setState((current) => updateTechnicianRecord(current, id, patch, actor));
+      return Promise.resolve();
+    },
+    deleteTechnician: (id: string) => {
+      if (isApiPersistenceEnabled) {
+        return runApiMutation(() => serviceDeskApi.deleteTechnician(id));
+      }
+      setState((current) => deleteTechnicianRecord(current, id));
+      return Promise.resolve();
+    },
+    createInvoice: (draft: InvoiceDraft, actor: string) => {
       if (isApiPersistenceEnabled) {
         return runApiMutation(() => serviceDeskApi.createInvoice(draft));
       }
-      setState((current) => createInvoiceRecord(current, draft));
+      setState((current) => createInvoiceRecord(current, draft, actor));
       return Promise.resolve();
     },
-    updateInvoiceStatus: (id: string, status: InvoiceStatus) => {
+    updateInvoiceStatus: (id: string, status: InvoiceStatus, actor: string) => {
       if (isApiPersistenceEnabled) {
         return runApiMutation(() => serviceDeskApi.updateInvoiceStatus(id, status));
       }
-      setState((current) => updateInvoiceStatusRecord(current, id, status));
+      setState((current) => updateInvoiceStatusRecord(current, id, status, actor));
       return Promise.resolve();
     },
-    recordInvoicePayment: (id: string, payment: InvoicePaymentDraft) => {
+    deleteInvoice: (id: string) => {
+      if (isApiPersistenceEnabled) {
+        return runApiMutation(() => serviceDeskApi.deleteInvoice(id));
+      }
+      setState((current) => deleteInvoiceRecord(current, id));
+      return Promise.resolve();
+    },
+    recordInvoicePayment: (id: string, payment: InvoicePaymentDraft, actor: string) => {
       if (isApiPersistenceEnabled) {
         return runApiMutation(() => serviceDeskApi.recordInvoicePayment(id, payment));
       }
-      setState((current) => recordInvoicePaymentRecord(current, id, payment));
+      setState((current) => recordInvoicePaymentRecord(current, id, payment, actor));
       return Promise.resolve();
     },
     notifyCustomerNow: (workItemId: string) => {

@@ -1,6 +1,7 @@
 import type {
   AuthResponse,
   AuthUser,
+  Customer,
   InventoryPart,
   InvoiceDraft,
   InvoicePaymentDraft,
@@ -8,6 +9,7 @@ import type {
   ManagedUser,
   SavedReportDraft,
   ServiceDeskState,
+  TechnicianDraft,
   UserDraft,
   UserRole,
   WorkItem,
@@ -100,6 +102,7 @@ export const userApi = {
   list: () => requestJson<{ users: ManagedUser[] }>('/api/admin/users'),
   create: (draft: UserDraft) => requestJson<{ users: ManagedUser[] }>('/api/admin/users', { method: 'POST', body: JSON.stringify(draft) }),
   update: (id: string, draft: UserDraft) => requestJson<{ users: ManagedUser[] }>(`/api/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify(draft) }),
+  remove: (id: string) => requestJson<{ users: ManagedUser[] }>(`/api/admin/users/${id}`, { method: 'DELETE' }),
 };
 
 export const serviceDeskApi = {
@@ -113,10 +116,18 @@ export const serviceDeskApi = {
   ) => requestState(`/api/work-items/${id}`, { method: 'PATCH', body: JSON.stringify({ patch, actor, message }) }),
   approveEstimate: (id: string) => requestState(`/api/work-items/${id}/approval`, { method: 'POST' }),
   cancelWorkItem: (id: string, actor: UserRole) => requestState(`/api/work-items/${id}/cancel`, { method: 'POST', body: JSON.stringify({ actor }) }),
+  deleteWorkItem: (id: string) => requestState(`/api/work-items/${id}`, { method: 'DELETE' }),
   adjustInventory: (sku: string, delta: number) => requestState(`/api/inventory/${sku}/adjust`, { method: 'PATCH', body: JSON.stringify({ delta }) }),
   addInventoryPart: (part: InventoryPart) => requestState(`/api/inventory/${part.sku}`, { method: 'PUT', body: JSON.stringify(part) }),
+  deleteInventoryPart: (sku: string) => requestState(`/api/inventory/${sku}`, { method: 'DELETE' }),
+  updateCustomer: (id: string, patch: Pick<Customer, 'name' | 'phone' | 'email'>) => requestState(`/api/customers/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  deleteCustomer: (id: string) => requestState(`/api/customers/${id}`, { method: 'DELETE' }),
+  addTechnician: (draft: TechnicianDraft) => requestState('/api/technicians', { method: 'POST', body: JSON.stringify(draft) }),
+  updateTechnician: (id: string, patch: TechnicianDraft) => requestState(`/api/technicians/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  deleteTechnician: (id: string) => requestState(`/api/technicians/${id}`, { method: 'DELETE' }),
   createInvoice: (draft: InvoiceDraft) => requestState('/api/invoices', { method: 'POST', body: JSON.stringify(draft) }),
   updateInvoiceStatus: (id: string, status: InvoiceStatus) => requestState(`/api/invoices/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+  deleteInvoice: (id: string) => requestState(`/api/invoices/${id}`, { method: 'DELETE' }),
   recordInvoicePayment: (id: string, payment: InvoicePaymentDraft) => requestState(`/api/invoices/${id}/payment`, { method: 'POST', body: JSON.stringify(payment) }),
   notifyCustomerNow: (workItemId: string) => requestState(`/api/work-items/${workItemId}/notify`, { method: 'POST' }),
   markNotificationsRead: (ids?: string[]) => requestState('/api/notifications/read', { method: 'POST', body: JSON.stringify({ ids }) }),

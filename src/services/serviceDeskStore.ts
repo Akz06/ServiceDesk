@@ -9,6 +9,7 @@ import type {
   Notification,
   SavedReportDraft,
   ServiceDeskState,
+  TechnicianDraft,
   UserRole,
   WorkItem,
   WorkItemDraft,
@@ -21,6 +22,7 @@ const nowStamp = () => new Date().toLocaleString(undefined, { dateStyle: 'medium
 
 const cloneState = (state: ServiceDeskState): ServiceDeskState => ({
   customers: state.customers.map((customer) => ({ ...customer })),
+  technicians: (state.technicians ?? []).map((technician) => ({ ...technician, specialties: [...technician.specialties] })),
   workItems: state.workItems.map((item) => ({ ...item, partsRequired: [...item.partsRequired], updates: item.updates.map((update) => ({ ...update })) })),
   inventoryParts: state.inventoryParts.map((part) => ({ ...part, compatibleWith: [...part.compatibleWith] })),
   invoices: state.invoices.map((invoice) => ({ ...invoice })),
@@ -68,6 +70,7 @@ export const loadServiceDeskState = (): ServiceDeskState => {
     return {
       ...getInitialServiceDeskState(),
       ...parsed,
+      technicians: parsed.technicians ?? getInitialServiceDeskState().technicians,
       invoices: parsed.invoices ?? [],
       notifications: (parsed.notifications ?? []).map((notification) => ({ ...notification, read: notification.read ?? false })),
       savedReports: parsed.savedReports ?? [],
@@ -89,7 +92,7 @@ export const resetServiceDeskState = () => {
   return initial;
 };
 
-export const createWorkItemRecord = (state: ServiceDeskState, draft: WorkItemDraft): ServiceDeskState => {
+export const createWorkItemRecord = (state: ServiceDeskState, draft: WorkItemDraft, actor: string): ServiceDeskState => {
   const stamp = nowStamp();
   const existingCustomer = state.customers.find(
     (customer) => customer.phone === draft.customerPhone || customer.email.toLowerCase() === draft.customerEmail.toLowerCase(),
@@ -99,6 +102,10 @@ export const createWorkItemRecord = (state: ServiceDeskState, draft: WorkItemDra
     name: draft.customerName.trim() || 'Walk-in Customer',
     phone: draft.customerPhone.trim() || 'Phone pending',
     email: draft.customerEmail.trim().toLowerCase() || 'email-pending@example.com',
+    createdAt: stamp,
+    createdBy: actor,
+    updatedAt: stamp,
+    updatedBy: actor,
   };
   const workItemId = nextNumericId('WI', state.workItems.map((item) => item.id), 1023);
   const workItem: WorkItem = {
@@ -124,7 +131,9 @@ export const createWorkItemRecord = (state: ServiceDeskState, draft: WorkItemDra
     approvedByCustomer: false,
     partsRequired: [],
     createdAt: stamp,
+    createdBy: actor,
     updatedAt: stamp,
+    updatedBy: actor,
     promisedBy: 'To be confirmed',
     updates: [
       { id: `${workItemId}-UP-1`, actor: 'Agent', message: `${draft.source} request created.`, at: stamp },
@@ -190,6 +199,7 @@ export const updateWorkItemRecord = (
         ...item,
         ...patch,
         updatedAt: stamp,
+        updatedBy: actor,
         updates: [
           ...item.updates,
           { id: `${id}-UP-${item.updates.length + 1}`, actor, message, at: stamp },
@@ -199,6 +209,12 @@ export const updateWorkItemRecord = (
     notifications: notification ? [notification, ...state.notifications] : state.notifications,
   };
 };
+
+export const deleteWorkItemRecord = (state: ServiceDeskState, id: string): ServiceDeskState => ({
+  ...state,
+  workItems: state.workItems.filter((item) => item.id !== id),
+  invoices: state.invoices.filter((invoice) => invoice.workItemId !== id),
+});
 
 export const notifyCustomerNowRecord = (state: ServiceDeskState, workItemId: string): ServiceDeskState => {
   const item = state.workItems.find((candidate) => candidate.id === workItemId);
@@ -243,12 +259,79 @@ export const adjustInventoryRecord = (state: ServiceDeskState, sku: string, delt
   ),
 });
 
-export const addInventoryPartRecord = (state: ServiceDeskState, part: InventoryPart): ServiceDeskState => ({
+export const addInventoryPartRecord = (state: ServiceDeskState, part: InventoryPart, actor: string): ServiceDeskState => {
+  const stamp = nowStamp();
+  const existing = state.inventoryParts.find((item) => item.sku === part.sku);
+  const stamped: InventoryPart = {
+    ...part,
+    createdAt: existing?.createdAt ?? stamp,
+    createdBy: existing?.createdBy ?? actor,
+    updatedAt: stamp,
+    updatedBy: actor,
+  };
+  return {
+    ...state,
+    inventoryParts: [stamped, ...state.inventoryParts.filter((item) => item.sku !== part.sku)],
+  };
+};
+
+export const deleteInventoryPartRecord = (state: ServiceDeskState, sku: string): ServiceDeskState => {
+  if (state.workItems.some((item) => item.partsRequired.includes(sku))) {
+    return state;
+  }
+  return { ...state, inventoryParts: state.inventoryParts.filter((part) => part.sku !== sku) };
+};
+
+export const updateCustomerRecord = (state: ServiceDeskState, id: string, patch: Pick<Customer, 'name' | 'phone' | 'email'>, actor: string): ServiceDeskState => ({
   ...state,
-  inventoryParts: [part, ...state.inventoryParts.filter((item) => item.sku !== part.sku)],
+  customers: state.customers.map((customer) => (customer.id === id ? { ...customer, ...patch, updatedAt: nowStamp(), updatedBy: actor } : customer)),
 });
 
-export const createInvoiceRecord = (state: ServiceDeskState, draft: InvoiceDraft): ServiceDeskState => {
+export const deleteCustomerRecord = (state: ServiceDeskState, id: string): ServiceDeskState => {
+  if (state.workItems.some((item) => item.customerId === id)) {
+    return state;
+  }
+  return { ...state, customers: state.customers.filter((customer) => customer.id !== id) };
+};
+
+export const addTechnicianRecord = (state: ServiceDeskState, draft: TechnicianDraft, actor: string): ServiceDeskState => {
+  const stamp = nowStamp();
+  return {
+    ...state,
+    technicians: [
+      {
+        id: nextNumericId('tech', state.technicians.map((technician) => technician.id), 0),
+        name: draft.name.trim(),
+        email: draft.email.trim().toLowerCase(),
+        specialties: draft.specialties,
+        activeJobs: 0,
+        createdAt: stamp,
+        createdBy: actor,
+        updatedAt: stamp,
+        updatedBy: actor,
+      },
+      ...state.technicians,
+    ],
+  };
+};
+
+export const updateTechnicianRecord = (state: ServiceDeskState, id: string, patch: TechnicianDraft, actor: string): ServiceDeskState => ({
+  ...state,
+  technicians: state.technicians.map((technician) =>
+    technician.id === id
+      ? { ...technician, name: patch.name.trim(), email: patch.email.trim().toLowerCase(), specialties: patch.specialties, updatedAt: nowStamp(), updatedBy: actor }
+      : technician,
+  ),
+});
+
+export const deleteTechnicianRecord = (state: ServiceDeskState, id: string): ServiceDeskState => {
+  if (state.workItems.some((item) => item.assignedTechnicianId === id)) {
+    return state;
+  }
+  return { ...state, technicians: state.technicians.filter((technician) => technician.id !== id) };
+};
+
+export const createInvoiceRecord = (state: ServiceDeskState, draft: InvoiceDraft, actor: string): ServiceDeskState => {
   const item = state.workItems.find((workItem) => workItem.id === draft.workItemId);
   if (!item) {
     return state;
@@ -258,6 +341,7 @@ export const createInvoiceRecord = (state: ServiceDeskState, draft: InvoiceDraft
   const partsAmount = Math.max(0, Number(draft.partsAmount) || 0);
   const diagnosticFee = Math.max(0, Number(draft.diagnosticFee) || 0);
   const breakdownTotal = laborAmount + partsAmount + diagnosticFee;
+  const stamp = nowStamp();
 
   return {
     ...state,
@@ -272,23 +356,34 @@ export const createInvoiceRecord = (state: ServiceDeskState, draft: InvoiceDraft
         partsAmount,
         diagnosticFee,
         status: 'Issued',
-        issuedAt: nowStamp(),
+        issuedAt: stamp,
         paidAt: '',
         paymentMethod: '',
         paymentReference: '',
         notes: draft.notes,
+        createdAt: stamp,
+        createdBy: actor,
+        updatedAt: stamp,
+        updatedBy: actor,
       },
       ...state.invoices,
     ],
   };
 };
 
-export const updateInvoiceStatusRecord = (state: ServiceDeskState, id: string, status: InvoiceStatus): ServiceDeskState => ({
+export const updateInvoiceStatusRecord = (state: ServiceDeskState, id: string, status: InvoiceStatus, actor: string): ServiceDeskState => ({
   ...state,
-  invoices: state.invoices.map((invoice) => (invoice.id === id ? { ...invoice, status, paidAt: status === 'Paid' ? nowStamp() : '' } : invoice)),
+  invoices: state.invoices.map((invoice) =>
+    invoice.id === id ? { ...invoice, status, paidAt: status === 'Paid' ? nowStamp() : '', updatedAt: nowStamp(), updatedBy: actor } : invoice,
+  ),
 });
 
-export const recordInvoicePaymentRecord = (state: ServiceDeskState, id: string, payment: InvoicePaymentDraft): ServiceDeskState => {
+export const deleteInvoiceRecord = (state: ServiceDeskState, id: string): ServiceDeskState => ({
+  ...state,
+  invoices: state.invoices.filter((invoice) => invoice.id !== id),
+});
+
+export const recordInvoicePaymentRecord = (state: ServiceDeskState, id: string, payment: InvoicePaymentDraft, actor: string): ServiceDeskState => {
   const invoice = state.invoices.find((candidate) => candidate.id === id);
   if (!invoice || invoice.status === 'Void') {
     return state;
@@ -307,7 +402,7 @@ export const recordInvoicePaymentRecord = (state: ServiceDeskState, id: string, 
     ...state,
     invoices: state.invoices.map((candidate) =>
       candidate.id === id
-        ? { ...candidate, status: 'Paid', paidAt: stamp, paymentMethod: payment.method, paymentReference: payment.reference.trim() || `TEST-${id}` }
+        ? { ...candidate, status: 'Paid', paidAt: stamp, paymentMethod: payment.method, paymentReference: payment.reference.trim() || `TEST-${id}`, updatedAt: stamp, updatedBy: actor }
         : candidate,
     ),
     notifications: [notification, ...state.notifications],

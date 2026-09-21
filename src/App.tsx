@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import {
   Bell,
@@ -6,6 +6,7 @@ import {
   Boxes,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   ClipboardList,
   Cog,
@@ -19,12 +20,14 @@ import {
   MessageCircle,
   MessageSquare,
   Minus,
-  Moon,
+  Pencil,
+  Pin,
   Plus,
   Receipt,
   Search,
+  SlidersHorizontal,
   Smartphone,
-  Sun,
+  Trash2,
   UserPlus,
   Users as UsersIcon,
   Wrench,
@@ -34,7 +37,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { ProgressTracker } from './components/ProgressTracker';
 import { ToastStack } from './components/ToastStack';
-import { serviceCategories, technicians } from './data/repairShop';
+import { serviceCategories } from './data/repairShop';
 import {
   authProfiles,
   currencyFormatter,
@@ -64,10 +67,12 @@ import type {
   ManagedUser,
   ModuleId,
   PaymentMethod,
+  Priority,
   ReportEntity,
   SavedReport,
   SavedReportDraft,
   Technician,
+  TechnicianDraft,
   UserDraft,
   UserRole,
   WorkItem,
@@ -90,6 +95,8 @@ const reportColumnOptions: Record<ReportEntity, string[]> = {
   customers: ['id', 'name', 'phone', 'email'],
   inventory: ['sku', 'name', 'quantity', 'reorderLevel', 'unitCost'],
 };
+
+const nowStamp = () => new Date().toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
 const supportEmail = import.meta.env.VITE_SUPPORT_EMAIL ?? 'support@example.com';
 const supportPhone = import.meta.env.VITE_SUPPORT_PHONE ?? '+1-555-0100';
@@ -115,6 +122,10 @@ const blankPart: InventoryPart = {
   quantity: 0,
   reorderLevel: 2,
   unitCost: 0,
+  createdAt: '',
+  createdBy: '',
+  updatedAt: '',
+  updatedBy: '',
 };
 
 const blankUser: UserDraft = {
@@ -154,17 +165,12 @@ const masterNav: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', modules: ['admin', 'agent', 'technician'], icon: LayoutDashboard },
   { id: 'people', label: 'People', modules: ['admin'], icon: UsersIcon, children: [
     { id: 'users', label: 'Users', modules: ['admin'] },
-    { id: 'new-user', label: 'New User', modules: ['admin'] },
     { id: 'customers', label: 'Customers', modules: ['admin'] },
     { id: 'technicians', label: 'Technicians', modules: ['admin'] },
   ] },
-  { id: 'inventory', label: 'Inventory', modules: ['admin', 'agent'], icon: Boxes, children: [
-    { id: 'inventory-report', label: 'Inventory', modules: ['admin', 'agent'] },
-    { id: 'inventory-new', label: 'New Part', modules: ['admin', 'agent'] },
-  ] },
+  { id: 'inventory-report', label: 'Inventory', modules: ['admin', 'agent'], icon: Boxes },
   { id: 'workitems', label: 'Work Items', modules: ['admin', 'agent'], icon: Wrench, children: [
     { id: 'wi-all', label: 'All Work Items', modules: ['admin', 'agent'] },
-    { id: 'wi-new', label: 'New Work Item', modules: ['admin', 'agent'] },
     { id: 'wi-board', label: 'Board', modules: ['admin', 'agent'] },
     { id: 'wi-walkins', label: 'Walk-ins', modules: ['admin', 'agent'] },
   ] },
@@ -174,10 +180,7 @@ const masterNav: NavItem[] = [
     { id: 'myjobs-repair', label: 'In Repair', modules: ['admin', 'technician'] },
   ] },
   { id: 'parts', label: 'Parts', modules: ['admin', 'technician'], icon: Cog },
-  { id: 'invoices', label: 'Invoices', modules: ['admin'], icon: Receipt, children: [
-    { id: 'invoices-report', label: 'Invoices', modules: ['admin'] },
-    { id: 'invoices-new', label: 'New Invoice', modules: ['admin'] },
-  ] },
+  { id: 'invoices-report', label: 'Invoices', modules: ['admin'], icon: Receipt },
   { id: 'catalog', label: 'Catalog', modules: ['admin'], icon: BookOpen },
   { id: 'reports', label: 'Export Reports', modules: ['admin'], icon: FileBarChart2 },
   { id: 'repairs', label: 'My Repairs', modules: ['admin', 'customer'], icon: Smartphone },
@@ -186,15 +189,20 @@ const masterNav: NavItem[] = [
 const sectionMeta: Record<string, SectionMeta> = {
   dashboard: { title: 'Dashboard', subtitle: 'A quick operational summary of active work, revenue, and stock.' },
   people: { title: 'People directory', subtitle: 'Manage staff accounts and customer/technician master data.' },
-  inventory: { title: 'Inventory', subtitle: 'Manage spare-parts stock levels and reorder points.' },
+  'inventory-report': { title: 'Inventory', subtitle: 'Manage spare-parts stock levels and reorder points.' },
   workitems: { title: 'Work Items', subtitle: 'Create, assign, track, and update repair work items.' },
   myjobs: { title: 'My Jobs', subtitle: 'Diagnose, estimate, and update assigned repair jobs.' },
   parts: { title: 'Parts', subtitle: 'Read-only view of spare-parts stock.' },
-  invoices: { title: 'Invoices', subtitle: 'Create invoices, record payments, and export for accounting.' },
+  'invoices-report': { title: 'Invoices', subtitle: 'Create invoices, record payments, and export for accounting.' },
   catalog: { title: 'Service catalog', subtitle: 'Browse repair categories, common issues, and starting prices.' },
   reports: { title: 'Export Reports', subtitle: 'Build, save, and export custom reports.' },
   repairs: { title: 'My Repairs', subtitle: 'Track repair progress, updates, and approve shared estimates.' },
 };
+
+// Most leaf views render their own heading (a DataGrid or form card title), so the
+// generic module header would just repeat it and eat space. Only views with no
+// title of their own — dashboard, the card-style My Jobs tabs, and the Kanban board — need it.
+const viewsNeedingModuleHeader = new Set(['dashboard', 'myjobs-assigned', 'myjobs-estimates', 'myjobs-repair', 'wi-board']);
 
 const visibleNavFor = (moduleAccess: ModuleId[]): NavItem[] => {
   const isVisible = (item: NavItem) => item.modules.some((moduleId) => moduleAccess.includes(moduleId));
@@ -223,21 +231,8 @@ const groupIdFor = (activeView: string): string => {
   return parent?.id ?? activeView;
 };
 
-type ThemeMode = 'light' | 'dark';
-
-const getInitialTheme = (): ThemeMode => {
-  const savedTheme = localStorage.getItem('service-desk-theme');
-
-  if (savedTheme === 'light' || savedTheme === 'dark') {
-    return savedTheme;
-  }
-
-  return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-};
-
 function App() {
   const [sessionId] = useState(getOrCreateSessionId);
-  const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
   const initialModule = getInitialModuleFromUrl();
   const auth = useAuth();
   const [activeModule, setActiveModule] = useState<ModuleId | null>(() => {
@@ -249,11 +244,9 @@ function App() {
   });
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    localStorage.setItem('service-desk-theme', theme);
-  }, [theme]);
-
-  const toggleTheme = () => setTheme((current) => (current === 'light' ? 'dark' : 'light'));
+    // Light/dark mode is hidden for now — the app always runs in its dark, "rich" palette.
+    document.documentElement.dataset.theme = 'dark';
+  }, []);
 
   const handleLoginSuccess = (user: AuthUser) => {
     const nextModule = initialModule && user.moduleAccess.includes(initialModule) ? initialModule : defaultModuleForProfile(user.profile);
@@ -268,21 +261,17 @@ function App() {
   };
 
   if (!auth.user || !activeModule) {
-    return <HomePage auth={auth} theme={theme} onThemeToggle={toggleTheme} onLoginSuccess={handleLoginSuccess} />;
+    return <HomePage auth={auth} onLoginSuccess={handleLoginSuccess} />;
   }
 
-  return <Workspace user={auth.user} theme={theme} onThemeToggle={toggleTheme} onLogout={handleLogout} />;
+  return <Workspace user={auth.user} onLogout={handleLogout} />;
 }
 
 function HomePage({
   auth,
-  theme,
-  onThemeToggle,
   onLoginSuccess,
 }: {
   auth: ReturnType<typeof useAuth>;
-  theme: ThemeMode;
-  onThemeToggle: () => void;
   onLoginSuccess: (user: AuthUser) => void;
 }) {
   const [email, setEmail] = useState('admin@servicedesk.local');
@@ -308,7 +297,7 @@ function HomePage({
     <main className="public-shell">
       <nav className="public-nav" aria-label="Homepage navigation">
         <div className="brand"><div className="brand-mark">SD</div><span>{appName}</span></div>
-        <div className="public-links"><a href="#features">Features</a><a href="#login">Login</a><a href={`mailto:${supportEmail}`}>Contact</a><ThemeToggle theme={theme} onToggle={onThemeToggle} /></div>
+        <div className="public-links"><a href="#features">Features</a><a href="#login">Login</a><a href={`mailto:${supportEmail}`}>Contact</a></div>
       </nav>
 
       <section className="homepage-hero">
@@ -368,18 +357,15 @@ function HomePage({
 
 function Workspace({
   user,
-  theme,
-  onThemeToggle,
   onLogout,
 }: {
   user: AuthUser;
-  theme: ThemeMode;
-  onThemeToggle: () => void;
   onLogout: () => Promise<void>;
 }) {
   const [selectedTechnicianId, setSelectedTechnicianId] = useState('tech-arun');
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('service-desk-sidebar-collapsed') === 'true');
   const serviceDesk = useServiceDesk();
   const { state } = serviceDesk;
   const metrics = getMetrics(state);
@@ -416,30 +402,59 @@ function Workspace({
     return () => window.removeEventListener('keydown', closeOnEscape);
   }, [mobileNavOpen]);
 
+  useEffect(() => {
+    localStorage.setItem('service-desk-sidebar-collapsed', String(sidebarCollapsed));
+  }, [sidebarCollapsed]);
+
   const groupId = groupIdFor(activeView);
   const isDashboard = activeView === 'dashboard';
   const meta = sectionMeta[groupId] ?? { title: appName, subtitle: '' };
   const toolbar =
     groupId === 'myjobs' ? (
-      <label className="filter-control compact-control">Technician<select value={selectedTechnicianId} onChange={(event) => setSelectedTechnicianId(event.target.value)}>{technicians.map((tech) => <option value={tech.id} key={tech.id}>{tech.name}</option>)}</select></label>
+      <label className="filter-control compact-control">Technician<select value={selectedTechnicianId} onChange={(event) => setSelectedTechnicianId(event.target.value)}>{state.technicians.map((tech) => <option value={tech.id} key={tech.id}>{tech.name}</option>)}</select></label>
     ) : groupId === 'repairs' ? (
       <label className="filter-control compact-control">Customer<select value={effectiveCustomerId} onChange={(event) => setSelectedCustomerId(event.target.value)}>{state.customers.map((customer) => <option value={customer.id} key={customer.id}>{customer.name}</option>)}</select></label>
     ) : undefined;
 
   return (
-    <main className="creator-shell">
+    <main className={sidebarCollapsed ? 'creator-shell sidebar-collapsed' : 'creator-shell'}>
       {mobileNavOpen && <div className="nav-overlay" onClick={() => setMobileNavOpen(false)} aria-hidden="true" />}
       <aside className={mobileNavOpen ? 'creator-sidebar nav-open' : 'creator-sidebar'}>
         <div className="brand app-brand">
           <div className="brand-mark">SD</div>
           <span>{appName}</span>
+          <button
+            type="button"
+            className="sidebar-pin-toggle"
+            aria-label="Unpin sidebar"
+            aria-pressed="true"
+            onClick={() => setSidebarCollapsed(true)}
+          >
+            <Pin aria-hidden="true" size={14} />
+          </button>
           {user.moduleAccess.includes('admin') && <NotificationBell notifications={state.notifications} markNotificationsRead={serviceDesk.markNotificationsRead} />}
         </div>
         <div className="sidebar-section">
           <span className="sidebar-label">{user.role} sections</span>
           <SidebarNav items={navItems} activeView={activeView} onNavigate={navigate} />
         </div>
+        <div className="sidebar-card">
+          <strong>{user.name}</strong>
+          <span>{user.role}</span>
+          <button type="button" className="sidebar-logout" onClick={() => void onLogout()}>
+            <LogOut aria-hidden="true" size={15} />
+            <span>Logout</span>
+          </button>
+        </div>
       </aside>
+      <button
+        type="button"
+        className="sidebar-rail"
+        aria-label="Expand sidebar"
+        onClick={() => setSidebarCollapsed(false)}
+      >
+        <ChevronRight aria-hidden="true" size={13} />
+      </button>
 
       <section className="creator-main">
         <header className="creator-topbar">
@@ -453,12 +468,6 @@ function Workspace({
             >
               {mobileNavOpen ? <X aria-hidden="true" size={20} /> : <Menu aria-hidden="true" size={20} />}
             </button>
-            <h1 className="topbar-crumb">{user.role} workspace</h1>
-          </div>
-          <div className="user-menu">
-            <span>{user.name}</span>
-            <small>{user.role}</small>
-            <div className="topbar-actions"><ThemeToggle theme={theme} onToggle={onThemeToggle} /><button type="button" className="secondary-button icon-button" onClick={() => void onLogout()}><LogOut aria-hidden="true" size={16} /><span>Logout</span></button></div>
           </div>
         </header>
 
@@ -482,13 +491,13 @@ function Workspace({
               label="Stock alerts"
               value={String(metrics.lowStockParts)}
               helper="Low inventory SKUs"
-              onClick={findNavTarget(['inventory', 'parts']) ? () => navigate(findNavTarget(['inventory', 'parts'])!) : undefined}
+              onClick={findNavTarget(['inventory-report', 'parts']) ? () => navigate(findNavTarget(['inventory-report', 'parts'])!) : undefined}
             />
             <MetricCard
               label="Paid revenue"
               value={currencyFormatter.format(metrics.paidRevenue)}
               helper={`${currencyFormatter.format(metrics.invoicedRevenue)} invoiced`}
-              onClick={findNavTarget(['invoices']) ? () => navigate(findNavTarget(['invoices'])!) : undefined}
+              onClick={findNavTarget(['invoices-report']) ? () => navigate(findNavTarget(['invoices-report'])!) : undefined}
             />
           </section>
         )}
@@ -590,14 +599,24 @@ function WorkspaceContent(
     createWorkItem,
     updateWorkItem,
     cancelWorkItem,
+    deleteWorkItem,
     adjustInventory,
+    addInventoryPart,
+    deleteInventoryPart,
+    updateCustomer,
+    deleteCustomer,
+    addTechnician,
+    updateTechnician,
+    deleteTechnician,
     notifyCustomerNow,
     createInvoice,
     updateInvoiceStatus,
     recordInvoicePayment,
+    deleteInvoice,
     createSavedReport,
     deleteSavedReport,
     approveEstimate,
+    reset,
     pushToast,
     navigate,
     focusRecordId,
@@ -610,32 +629,51 @@ function WorkspaceContent(
   );
 
   return (
-    <ModuleFrame title={title} subtitle={subtitle} toolbar={toolbar}>
+    <ModuleFrame title={title} subtitle={subtitle} toolbar={toolbar} showHeader={viewsNeedingModuleHeader.has(activeView)}>
       {activeView === 'dashboard' && (
         <DashboardPanel profile={currentUser.profile} state={state} selectedTechnicianId={selectedTechnicianId} navigate={navigate} moduleAccess={currentUser.moduleAccess} />
       )}
 
-      {activeView === 'new-user' && <NewUserForm currentUser={currentUser} pushToast={pushToast} />}
-      {activeView === 'users' && <UsersReport currentUser={currentUser} pushToast={pushToast} navigate={navigate} />}
-      {activeView === 'customers' && <CustomersPanel state={state} pushToast={pushToast} />}
-      {activeView === 'technicians' && <TechniciansPanel state={state} />}
+      {activeView === 'users' && <UsersReport currentUser={currentUser} pushToast={pushToast} />}
+      {activeView === 'customers' && (
+        <CustomersPanel state={state} updateCustomer={updateCustomer} deleteCustomer={deleteCustomer} currentUser={currentUser} pushToast={pushToast} />
+      )}
+      {activeView === 'technicians' && (
+        <TechniciansPanel
+          state={state}
+          addTechnician={addTechnician}
+          updateTechnician={updateTechnician}
+          deleteTechnician={deleteTechnician}
+          currentUser={currentUser}
+          pushToast={pushToast}
+        />
+      )}
 
-      {activeView === 'inventory-new' && <NewPartForm addInventoryPart={props.addInventoryPart} reset={props.reset} canReset={currentUser.profile === 'admin'} pushToast={pushToast} />}
-      {activeView === 'inventory-report' && <InventoryReport state={state} adjustInventory={adjustInventory} navigate={navigate} />}
+      {activeView === 'inventory-report' && (
+        <InventoryReport
+          state={state}
+          adjustInventory={adjustInventory}
+          addInventoryPart={addInventoryPart}
+          deleteInventoryPart={deleteInventoryPart}
+          reset={reset}
+          currentUser={currentUser}
+          pushToast={pushToast}
+        />
+      )}
 
       {activeView === 'wi-board' && <KanbanBoard workItems={state.workItems} updateWorkItem={updateWorkItem} pushToast={pushToast} />}
-      {activeView === 'wi-new' && <NewWorkItemForm state={state} createWorkItem={createWorkItem} pushToast={pushToast} navigate={navigate} />}
       {(activeView === 'wi-all' || activeView === 'wi-walkins') && (
         <WorkItemsSection
           subView={activeView === 'wi-walkins' ? 'walkins' : 'all'}
           actorRole={currentUser.role}
           state={state}
           initialSelectedId={focusRecordId}
+          createWorkItem={createWorkItem}
           updateWorkItem={updateWorkItem}
           cancelWorkItem={cancelWorkItem}
+          deleteWorkItem={deleteWorkItem}
           notifyCustomerNow={notifyCustomerNow}
           pushToast={pushToast}
-          navigate={navigate}
         />
       )}
 
@@ -644,9 +682,16 @@ function WorkspaceContent(
       )}
       {activeView === 'parts' && <InventoryView {...props} canManage={false} canReset={false} pushToast={pushToast} />}
 
-      {activeView === 'invoices-new' && <NewInvoiceForm state={state} createInvoice={createInvoice} pushToast={pushToast} navigate={navigate} />}
       {activeView === 'invoices-report' && (
-        <InvoicesReport state={state} updateInvoiceStatus={updateInvoiceStatus} recordInvoicePayment={recordInvoicePayment} pushToast={pushToast} navigate={navigate} />
+        <InvoicesReport
+          state={state}
+          createInvoice={createInvoice}
+          updateInvoiceStatus={updateInvoiceStatus}
+          recordInvoicePayment={recordInvoicePayment}
+          deleteInvoice={deleteInvoice}
+          currentUser={currentUser}
+          pushToast={pushToast}
+        />
       )}
 
       {activeView === 'catalog' && (
@@ -695,6 +740,51 @@ function WorkItemStatusChart({ workItems }: { workItems: WorkItem[] }) {
   );
 }
 
+function LowStockChart({ parts, onSelect }: { parts: (InventoryPart & { id: string })[]; onSelect: () => void }) {
+  if (!parts.length) {
+    return <EmptyState title="Stock levels are healthy" body="No parts are at or below their reorder point." />;
+  }
+
+  const max = Math.max(1, ...parts.map((part) => Math.max(part.quantity, part.reorderLevel)));
+
+  return (
+    <div className="chart-widget">
+      {parts.map((part) => {
+        const severity = part.quantity <= part.reorderLevel / 2 ? 'danger' : 'warning';
+        return (
+          <button type="button" className="chart-bar-row chart-bar-row-clickable" key={part.id} onClick={onSelect}>
+            <span className="chart-bar-label">{part.name}</span>
+            <div className="chart-bar-track">
+              <div className={`chart-bar-fill severity-${severity}`} style={{ width: `${Math.min(100, (part.quantity / max) * 100)}%` }} />
+            </div>
+            <span className="chart-bar-value">{part.quantity}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function RecentWorkItemsList({ items, onSelect }: { items: WorkItem[]; onSelect: (item: WorkItem) => void }) {
+  if (!items.length) {
+    return <EmptyState title="No work items yet" body="Create a work item to see it here." />;
+  }
+
+  return (
+    <div className="activity-list">
+      {items.map((item) => (
+        <button type="button" className="activity-row" key={item.id} onClick={() => onSelect(item)}>
+          <span className="activity-row-main">
+            <strong>{item.deviceModel}</strong>
+            <span>{item.customerName} · {item.id}</span>
+          </span>
+          <span className={`status ${item.status.toLowerCase().replaceAll(' ', '-')}`}>{item.status}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function DashboardPanel({
   profile,
   state,
@@ -709,43 +799,31 @@ function DashboardPanel({
   moduleAccess: ModuleId[];
 }) {
   const metrics = getMetrics(state);
-  const stockSectionId = moduleAccess.includes('admin') || moduleAccess.includes('agent') ? 'inventory' : 'parts';
-
-  const lowStockRows = state.inventoryParts.filter((part) => part.quantity <= part.reorderLevel).map((part) => ({ ...part, id: part.sku }));
-  const lowStockColumns: DataGridColumn<InventoryPart & { id: string }>[] = [
-    { key: 'part', label: 'Part', render: (part) => <strong>{part.name}</strong>, sortValue: (part) => part.name },
-    { key: 'sku', label: 'SKU', render: (part) => part.sku, sortValue: (part) => part.sku },
-    { key: 'stock', label: 'Stock', render: (part) => <span className={part.quantity <= part.reorderLevel ? 'stock-low' : 'stock-ok'}>{part.quantity} in stock</span>, sortValue: (part) => part.quantity },
-    { key: 'reorder', label: 'Reorder at', render: (part) => part.reorderLevel, sortValue: (part) => part.reorderLevel },
-    { key: 'cost', label: 'Cost', render: (part) => currencyFormatter.format(part.unitCost), sortValue: (part) => part.unitCost },
-  ];
+  const stockSectionId = moduleAccess.includes('admin') || moduleAccess.includes('agent') ? 'inventory-report' : 'parts';
+  const lowStockParts = state.inventoryParts.filter((part) => part.quantity <= part.reorderLevel).map((part) => ({ ...part, id: part.sku }));
 
   if (profile === 'admin') {
     return (
       <div className="creator-page">
         <div className="creator-report-grid">
           <MetricCard label="Customers" value={String(state.customers.length)} helper="Customer master records" onClick={() => navigate('customers')} />
-          <MetricCard label="Technicians" value={String(technicians.length)} helper="Repair bench users" onClick={() => navigate('technicians')} />
-          <MetricCard label="Invoices" value={String(state.invoices.length)} helper={`${currencyFormatter.format(metrics.invoicedRevenue)} total`} onClick={() => navigate('invoices')} />
+          <MetricCard label="Technicians" value={String(state.technicians.length)} helper="Repair bench users" onClick={() => navigate('technicians')} />
+          <MetricCard label="Invoices" value={String(state.invoices.length)} helper={`${currencyFormatter.format(metrics.invoicedRevenue)} total`} onClick={() => navigate('invoices-report')} />
           <MetricCard label="Parts" value={String(state.inventoryParts.length)} helper="Inventory SKUs" onClick={() => navigate('parts')} />
         </div>
-        <div className="creator-list-panel">
-          <ListHeader title="Work items by status" count={state.workItems.length} />
-          <WorkItemStatusChart workItems={state.workItems} />
-        </div>
         <div className="creator-record-grid">
-          <DataGrid
-            title="Recent work items"
-            columns={workItemGridColumns}
-            rows={state.workItems.slice(0, 6)}
-            onRowClick={(item) => navigate('wi-all', item.id)}
-          />
-          <DataGrid
-            title="Low stock alerts"
-            columns={lowStockColumns}
-            rows={lowStockRows}
-            onRowClick={() => navigate(stockSectionId)}
-          />
+          <div className="creator-list-panel">
+            <ListHeader title="Work items by status" count={state.workItems.length} />
+            <WorkItemStatusChart workItems={state.workItems} />
+          </div>
+          <div className="creator-list-panel">
+            <ListHeader title="Low stock alerts" count={lowStockParts.length} />
+            <LowStockChart parts={lowStockParts} onSelect={() => navigate(stockSectionId)} />
+          </div>
+        </div>
+        <div className="creator-list-panel">
+          <ListHeader title="Recent work items" count={Math.min(6, state.workItems.length)} />
+          <RecentWorkItemsList items={state.workItems.slice(0, 6)} onSelect={(item) => navigate('wi-all', item.id)} />
         </div>
       </div>
     );
@@ -758,23 +836,19 @@ function DashboardPanel({
 
   return (
     <div className="creator-page">
-      <div className="creator-list-panel">
-        <ListHeader title="Work items by status" count={state.workItems.length} />
-        <WorkItemStatusChart workItems={state.workItems} />
-      </div>
       <div className="creator-record-grid">
-        <DataGrid
-          title="Recent work items"
-          columns={workItemGridColumns}
-          rows={state.workItems.slice(0, 6)}
-          onRowClick={(item) => navigate('wi-all', item.id)}
-        />
-        <DataGrid
-          title="Low stock alerts"
-          columns={lowStockColumns}
-          rows={lowStockRows}
-          onRowClick={() => navigate(stockSectionId)}
-        />
+        <div className="creator-list-panel">
+          <ListHeader title="Work items by status" count={state.workItems.length} />
+          <WorkItemStatusChart workItems={state.workItems} />
+        </div>
+        <div className="creator-list-panel">
+          <ListHeader title="Low stock alerts" count={lowStockParts.length} />
+          <LowStockChart parts={lowStockParts} onSelect={() => navigate(stockSectionId)} />
+        </div>
+      </div>
+      <div className="creator-list-panel">
+        <ListHeader title="Recent work items" count={Math.min(6, state.workItems.length)} />
+        <RecentWorkItemsList items={state.workItems.slice(0, 6)} onSelect={(item) => navigate('wi-all', item.id)} />
       </div>
     </div>
   );
@@ -783,10 +857,10 @@ function DashboardPanel({
 const MANAGED_USERS_STORAGE_KEY = 'service-desk-managed-users';
 
 const seedManagedUsers = (currentUser: AuthUser): ManagedUser[] => [
-  { ...currentUser, active: true, createdAt: 'Local demo' },
-  { id: 'user-agent', name: 'Agent User', email: 'agent@servicedesk.local', role: 'Agent', profile: 'agent', moduleAccess: ['agent'], active: true, createdAt: 'Local demo' },
-  { id: 'user-technician', name: 'Technician User', email: 'tech@servicedesk.local', role: 'Technician', profile: 'technician', moduleAccess: ['technician'], active: true, createdAt: 'Local demo' },
-  { id: 'user-customer', name: 'Customer User', email: 'customer@servicedesk.local', role: 'Customer', profile: 'customer', moduleAccess: ['customer'], active: true, createdAt: 'Local demo' },
+  { ...currentUser, active: true, createdAt: 'Local demo', createdBy: 'System', updatedAt: 'Local demo', updatedBy: 'System' },
+  { id: 'user-agent', name: 'Agent User', email: 'agent@servicedesk.local', role: 'Agent', profile: 'agent', moduleAccess: ['agent'], active: true, createdAt: 'Local demo', createdBy: 'System', updatedAt: 'Local demo', updatedBy: 'System' },
+  { id: 'user-technician', name: 'Technician User', email: 'tech@servicedesk.local', role: 'Technician', profile: 'technician', moduleAccess: ['technician'], active: true, createdAt: 'Local demo', createdBy: 'System', updatedAt: 'Local demo', updatedBy: 'System' },
+  { id: 'user-customer', name: 'Customer User', email: 'customer@servicedesk.local', role: 'Customer', profile: 'customer', moduleAccess: ['customer'], active: true, createdAt: 'Local demo', createdBy: 'System', updatedAt: 'Local demo', updatedBy: 'System' },
 ];
 
 const loadLocalManagedUsers = (currentUser: AuthUser): ManagedUser[] => {
@@ -809,7 +883,7 @@ const saveLocalManagedUsers = (users: ManagedUser[]) => {
   }
 };
 
-function NewUserForm({ currentUser, pushToast }: { currentUser: AuthUser; pushToast: (message: ReactNode, tone?: ToastTone) => void }) {
+function NewUserForm({ currentUser, pushToast, onDone }: { currentUser: AuthUser; pushToast: (message: ReactNode, tone?: ToastTone) => void; onDone: () => void }) {
   const [userDraft, setUserDraft] = useState<UserDraft>(blankUser);
   const [userError, setUserError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -818,18 +892,27 @@ function NewUserForm({ currentUser, pushToast }: { currentUser: AuthUser; pushTo
     event.preventDefault();
     setUserError(null);
     if (!isApiPersistenceEnabled) {
-      const created: ManagedUser = { id: `local-${Date.now()}`, role: profileToRole(userDraft.profile), moduleAccess: profileToModules(userDraft.profile), createdAt: 'Local demo', ...userDraft };
+      const created: ManagedUser = {
+        id: `local-${Date.now()}`,
+        role: profileToRole(userDraft.profile),
+        moduleAccess: profileToModules(userDraft.profile),
+        createdAt: nowStamp(),
+        createdBy: currentUser.name,
+        updatedAt: nowStamp(),
+        updatedBy: currentUser.name,
+        ...userDraft,
+      };
       saveLocalManagedUsers([created, ...loadLocalManagedUsers(currentUser)]);
-      setUserDraft(blankUser);
       pushToast(`Created user ${userDraft.name || userDraft.email}.`);
+      onDone();
       return;
     }
 
     setIsSubmitting(true);
     try {
       await userApi.create(userDraft);
-      setUserDraft(blankUser);
       pushToast(`Created user ${userDraft.name || userDraft.email}.`);
+      onDone();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to create user.';
       setUserError(message);
@@ -847,15 +930,77 @@ function NewUserForm({ currentUser, pushToast }: { currentUser: AuthUser; pushTo
         <div className="form-row"><label>Profile<select value={userDraft.profile} onChange={(event) => setUserDraft({ ...userDraft, profile: event.target.value as AuthProfile })}>{authProfiles.map((profile) => <option key={profile} value={profile}>{profile}</option>)}</select></label><label>Password<input required type="password" minLength={8} value={userDraft.password} onChange={(event) => setUserDraft({ ...userDraft, password: event.target.value })} placeholder="Minimum 8 chars" /></label></div>
         <label className="inline-check"><input type="checkbox" checked={userDraft.active} onChange={(event) => setUserDraft({ ...userDraft, active: event.target.checked })} /> Active user</label>
         {userError && <div className="login-error">{userError}</div>}
-        <button className="primary-button icon-button" type="submit" disabled={isSubmitting}><UserPlus aria-hidden="true" size={16} /><span>{isSubmitting ? 'Creating…' : 'Create user'}</span></button>
+        <div className="card-actions">
+          <button className="primary-button icon-button" type="submit" disabled={isSubmitting}><UserPlus aria-hidden="true" size={16} /><span>{isSubmitting ? 'Creating…' : 'Create user'}</span></button>
+          <button type="button" className="secondary-button" onClick={onDone} disabled={isSubmitting}>Cancel</button>
+        </div>
       </form>
     </CreatorFormCard>
   );
 }
 
-function UsersReport({ currentUser, pushToast, navigate }: { currentUser: AuthUser; pushToast: (message: ReactNode, tone?: ToastTone) => void; navigate: (id: string) => void }) {
+function UserEditForm({
+  managedUser,
+  onSave,
+  onDone,
+  pushToast,
+}: {
+  managedUser: ManagedUser;
+  onSave: (draft: UserDraft) => Promise<void>;
+  onDone: () => void;
+  pushToast: (message: ReactNode, tone?: ToastTone) => void;
+}) {
+  const [draft, setDraft] = useState({ name: managedUser.name, email: managedUser.email, profile: managedUser.profile });
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError(null);
+    setIsSubmitting(true);
+    try {
+      await onSave({ ...draft, active: managedUser.active, password: '' });
+      pushToast(`Saved changes for ${draft.name}.`);
+      onDone();
+    } catch (submitError) {
+      const message = submitError instanceof Error ? submitError.message : 'Unable to save user.';
+      setError(message);
+      pushToast(message, 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <CreatorFormCard title="Edit user" eyebrow="User form">
+      <form className="creator-form" onSubmit={(event) => void submit(event)}>
+        <label>Name<input required value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
+        <label>Email<input required type="email" value={draft.email} onChange={(event) => setDraft({ ...draft, email: event.target.value })} /></label>
+        <label>Profile<select value={draft.profile} onChange={(event) => setDraft({ ...draft, profile: event.target.value as AuthProfile })}>{authProfiles.map((profile) => <option key={profile} value={profile}>{profile}</option>)}</select></label>
+        {error && <div className="login-error">{error}</div>}
+        <div className="card-actions">
+          <button className="primary-button" type="submit" disabled={isSubmitting}>{isSubmitting ? 'Saving…' : 'Save changes'}</button>
+          <button className="secondary-button" type="button" onClick={onDone}>Cancel</button>
+        </div>
+      </form>
+    </CreatorFormCard>
+  );
+}
+
+function UsersReport({ currentUser, pushToast }: { currentUser: AuthUser; pushToast: (message: ReactNode, tone?: ToastTone) => void }) {
   const [users, setUsers] = useState<ManagedUser[]>(() => (isApiPersistenceEnabled ? [] : loadLocalManagedUsers(currentUser)));
   const [userError, setUserError] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
+  const editingUser = editingId ? users.find((managedUser) => managedUser.id === editingId) : undefined;
+
+  const refreshUsers = () => {
+    if (!isApiPersistenceEnabled) {
+      setUsers(loadLocalManagedUsers(currentUser));
+      return;
+    }
+    void userApi.list().then((response) => setUsers(response.users)).catch((error: unknown) => setUserError(error instanceof Error ? error.message : 'Unable to load users.'));
+  };
 
   useEffect(() => {
     if (!isApiPersistenceEnabled) {
@@ -889,11 +1034,154 @@ function UsersReport({ currentUser, pushToast, navigate }: { currentUser: AuthUs
     }
   };
 
+  const saveUser = async (managedUser: ManagedUser, draft: UserDraft) => {
+    if (!isApiPersistenceEnabled) {
+      const next = users.map((item) =>
+        item.id === managedUser.id
+          ? { ...item, name: draft.name, email: draft.email, profile: draft.profile, active: draft.active, role: profileToRole(draft.profile), moduleAccess: profileToModules(draft.profile) }
+          : item,
+      );
+      setUsers(next);
+      saveLocalManagedUsers(next);
+      return;
+    }
+
+    const response = await userApi.update(managedUser.id, draft);
+    setUsers(response.users);
+  };
+
+  const activeAdminCount = users.filter((managedUser) => managedUser.profile === 'admin' && managedUser.active).length;
+
+  const removeUser = async (managedUser: ManagedUser) => {
+    if (managedUser.id === currentUser.id) {
+      pushToast('You cannot delete your own account.', 'error');
+      return;
+    }
+    if (managedUser.profile === 'admin' && managedUser.active && activeAdminCount <= 1) {
+      pushToast('Cannot delete the only active admin account.', 'error');
+      return;
+    }
+    if (!window.confirm(`Delete user ${managedUser.name}? This cannot be undone.`)) {
+      return;
+    }
+
+    if (!isApiPersistenceEnabled) {
+      const next = users.filter((item) => item.id !== managedUser.id);
+      setUsers(next);
+      saveLocalManagedUsers(next);
+      pushToast(`Deleted user ${managedUser.name}.`);
+      return;
+    }
+
+    try {
+      const response = await userApi.remove(managedUser.id);
+      setUsers(response.users);
+      pushToast(`Deleted user ${managedUser.name}.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to delete user.';
+      setUserError(message);
+      pushToast(message, 'error');
+    }
+  };
+
+  const bulkDeleteUsers = async (selected: ManagedUser[]) => {
+    const blocked: ManagedUser[] = [];
+    const deletable: ManagedUser[] = [];
+    let remainingActiveAdmins = activeAdminCount;
+
+    selected.forEach((managedUser) => {
+      if (managedUser.id === currentUser.id) {
+        blocked.push(managedUser);
+        return;
+      }
+      const isActiveAdmin = managedUser.profile === 'admin' && managedUser.active;
+      if (isActiveAdmin && remainingActiveAdmins <= 1) {
+        blocked.push(managedUser);
+        return;
+      }
+      if (isActiveAdmin) {
+        remainingActiveAdmins -= 1;
+      }
+      deletable.push(managedUser);
+    });
+
+    if (blocked.length) {
+      pushToast(`${blocked.length} user${blocked.length === 1 ? '' : 's'} could not be deleted (your own account or the last active admin): ${blocked.map((managedUser) => managedUser.name).join(', ')}.`, 'error');
+    }
+    if (!deletable.length) {
+      return;
+    }
+    if (!window.confirm(`Delete ${deletable.length} user${deletable.length === 1 ? '' : 's'}? This cannot be undone.`)) {
+      return;
+    }
+
+    if (!isApiPersistenceEnabled) {
+      const deletableIds = new Set(deletable.map((managedUser) => managedUser.id));
+      const next = users.filter((item) => !deletableIds.has(item.id));
+      setUsers(next);
+      saveLocalManagedUsers(next);
+      pushToast(`Deleted ${deletable.length} user${deletable.length === 1 ? '' : 's'}.`);
+      return;
+    }
+
+    try {
+      let response: { users: ManagedUser[] } = { users };
+      for (const managedUser of deletable) {
+        response = await userApi.remove(managedUser.id);
+      }
+      setUsers(response.users);
+      pushToast(`Deleted ${deletable.length} user${deletable.length === 1 ? '' : 's'}.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to delete user.';
+      setUserError(message);
+      pushToast(message, 'error');
+    }
+  };
+
+  const userBulkEditFields: BulkEditField<ManagedUser>[] = [
+    { key: 'name', label: 'Name', type: 'text', apply: (value) => ({ name: value }) },
+    { key: 'email', label: 'Email', type: 'text', apply: (value) => ({ email: value }) },
+    { key: 'profile', label: 'Profile', type: 'select', options: [...authProfiles], apply: (value) => ({ profile: value as AuthProfile }) },
+  ];
+
+  const bulkEditUsers = (selected: ManagedUser[], patch: Partial<ManagedUser>) => {
+    void Promise.all(selected.map((managedUser) => saveUser(managedUser, { name: managedUser.name, email: managedUser.email, profile: managedUser.profile, active: managedUser.active, password: '', ...patch })))
+      .then(() => {
+        pushToast(`Updated ${selected.length} user${selected.length === 1 ? '' : 's'}.`);
+        refreshUsers();
+      });
+  };
+
+  if (isCreating) {
+    return (
+      <div className="record-detail-screen">
+        <button type="button" className="back-link" onClick={() => setIsCreating(false)}>
+          <ChevronLeft aria-hidden="true" size={16} />
+          <span>Back to Users report</span>
+        </button>
+        <NewUserForm currentUser={currentUser} pushToast={pushToast} onDone={() => { setIsCreating(false); refreshUsers(); }} />
+      </div>
+    );
+  }
+
+  if (editingUser) {
+    return (
+      <div className="record-detail-screen">
+        <button type="button" className="back-link" onClick={() => setEditingId(null)}>
+          <ChevronLeft aria-hidden="true" size={16} />
+          <span>Back to Users report</span>
+        </button>
+        <UserEditForm managedUser={editingUser} onSave={(draft) => saveUser(editingUser, draft)} onDone={() => setEditingId(null)} pushToast={pushToast} />
+      </div>
+    );
+  }
+
   const columns: DataGridColumn<ManagedUser>[] = [
     { key: 'name', label: 'Name', render: (managedUser) => <strong>{managedUser.name}</strong>, sortValue: (managedUser) => managedUser.name, searchValue: (managedUser) => managedUser.name },
     { key: 'email', label: 'Email', render: (managedUser) => managedUser.email, sortValue: (managedUser) => managedUser.email, searchValue: (managedUser) => managedUser.email },
     { key: 'profile', label: 'Profile', render: (managedUser) => <span className="pill">{managedUser.profile}</span>, sortValue: (managedUser) => managedUser.profile, searchValue: (managedUser) => managedUser.profile },
     { key: 'status', label: 'Status', render: (managedUser) => <span className={managedUser.active ? 'stock-ok' : 'muted'}>{managedUser.active ? 'Active' : 'Inactive'}</span>, sortValue: (managedUser) => (managedUser.active ? 0 : 1) },
+    ...auditColumns<ManagedUser>(),
     {
       key: 'action',
       label: 'Action',
@@ -903,26 +1191,171 @@ function UsersReport({ currentUser, pushToast, navigate }: { currentUser: AuthUs
         </button>
       ),
     },
+    {
+      key: 'actions',
+      label: 'Actions',
+      render: (managedUser) => (
+        <div className="row-actions" onClick={(event) => event.stopPropagation()}>
+          <button type="button" className="icon-toolbar-button" aria-label={`Edit ${managedUser.name}`} onClick={() => setEditingId(managedUser.id)}><Pencil aria-hidden="true" size={14} /></button>
+          <button
+            type="button"
+            className="icon-toolbar-button is-danger"
+            aria-label={`Delete ${managedUser.name}`}
+            disabled={managedUser.id === currentUser.id}
+            onClick={() => void removeUser(managedUser)}
+          >
+            <Trash2 aria-hidden="true" size={14} />
+          </button>
+        </div>
+      ),
+    },
   ];
 
   return (
     <>
       {userError && <div className="login-error">{userError}</div>}
-      <DataGrid title="Users report" columns={columns} rows={users} onAddNew={() => navigate('new-user')} addLabel="New user" />
+      <DataGrid
+        onBulkDelete={(rows) => void bulkDeleteUsers(rows)}
+        bulkEditFields={userBulkEditFields}
+        onBulkEditApply={bulkEditUsers}
+        title="Users report"
+        columns={columns}
+        rows={users}
+        onAddNew={() => setIsCreating(true)}
+        addLabel="New user"
+      />
     </>
   );
 }
 
-function CustomersPanel({ state, pushToast }: { state: DeskActions['state']; pushToast: (message: ReactNode, tone?: ToastTone) => void }) {
+function CustomerEditForm({
+  customer,
+  updateCustomer,
+  actor,
+  pushToast,
+  onDone,
+}: {
+  customer: Customer;
+  updateCustomer: DeskActions['updateCustomer'];
+  actor: string;
+  pushToast: (message: ReactNode, tone?: ToastTone) => void;
+  onDone: () => void;
+}) {
+  const [draft, setDraft] = useState({ name: customer.name, phone: customer.phone, email: customer.email });
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void updateCustomer(customer.id, draft, actor);
+    pushToast(`Saved changes for ${draft.name}.`);
+    onDone();
+  };
+
+  return (
+    <CreatorFormCard title="Edit customer" eyebrow="Customer master">
+      <form className="creator-form" onSubmit={submit}>
+        <label>Name<input required value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
+        <label>Phone<input required value={draft.phone} onChange={(event) => setDraft({ ...draft, phone: event.target.value })} /></label>
+        <label>Email<input required type="email" value={draft.email} onChange={(event) => setDraft({ ...draft, email: event.target.value })} /></label>
+        <div className="card-actions">
+          <button className="primary-button" type="submit">Save changes</button>
+          <button className="secondary-button" type="button" onClick={onDone}>Cancel</button>
+        </div>
+      </form>
+    </CreatorFormCard>
+  );
+}
+
+function CustomersPanel({
+  state,
+  updateCustomer,
+  deleteCustomer,
+  currentUser,
+  pushToast,
+}: {
+  state: DeskActions['state'];
+  updateCustomer: DeskActions['updateCustomer'];
+  deleteCustomer: DeskActions['deleteCustomer'];
+  currentUser: AuthUser;
+  pushToast: (message: ReactNode, tone?: ToastTone) => void;
+}) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const editingCustomer = editingId ? state.customers.find((customer) => customer.id === editingId) : undefined;
+
+  const removeCustomer = (customer: Customer) => {
+    const usage = state.workItems.filter((item) => item.customerId === customer.id).length;
+    if (usage > 0) {
+      pushToast(`Cannot delete ${customer.name} — they have ${usage} work item${usage === 1 ? '' : 's'} on file.`, 'error');
+      return;
+    }
+    if (!window.confirm(`Delete customer ${customer.name}? This cannot be undone.`)) {
+      return;
+    }
+    void deleteCustomer(customer.id);
+    pushToast(`Deleted customer ${customer.name}.`);
+  };
+
+  const bulkDeleteCustomers = (customers: Customer[]) => {
+    const blocked = customers.filter((customer) => state.workItems.some((item) => item.customerId === customer.id));
+    const deletable = customers.filter((customer) => !state.workItems.some((item) => item.customerId === customer.id));
+    if (blocked.length) {
+      pushToast(`${blocked.length} customer${blocked.length === 1 ? '' : 's'} have work items and were not deleted: ${blocked.map((customer) => customer.name).join(', ')}.`, 'error');
+    }
+    if (!deletable.length) {
+      return;
+    }
+    if (!window.confirm(`Delete ${deletable.length} customer${deletable.length === 1 ? '' : 's'}? This cannot be undone.`)) {
+      return;
+    }
+    deletable.forEach((customer) => void deleteCustomer(customer.id));
+    pushToast(`Deleted ${deletable.length} customer${deletable.length === 1 ? '' : 's'}.`);
+  };
+
+  const customerBulkEditFields: BulkEditField<Customer>[] = [
+    { key: 'name', label: 'Name', type: 'text', apply: (value) => ({ name: value }) },
+    { key: 'phone', label: 'Phone', type: 'text', apply: (value) => ({ phone: value }) },
+    { key: 'email', label: 'Email', type: 'text', apply: (value) => ({ email: value }) },
+  ];
+
+  const bulkEditCustomers = (customers: Customer[], patch: Partial<Customer>) => {
+    customers.forEach((customer) => void updateCustomer(customer.id, { name: customer.name, phone: customer.phone, email: customer.email, ...patch }, currentUser.name));
+    pushToast(`Updated ${customers.length} customer${customers.length === 1 ? '' : 's'}.`);
+  };
+
+  if (editingCustomer) {
+    return (
+      <div className="record-detail-screen">
+        <button type="button" className="back-link" onClick={() => setEditingId(null)}>
+          <ChevronLeft aria-hidden="true" size={16} />
+          <span>Back to Customer master</span>
+        </button>
+        <CustomerEditForm customer={editingCustomer} updateCustomer={updateCustomer} actor={currentUser.name} pushToast={pushToast} onDone={() => setEditingId(null)} />
+      </div>
+    );
+  }
+
   const columns: DataGridColumn<Customer>[] = [
     { key: 'name', label: 'Name', render: (customer) => <strong>{customer.name}</strong>, sortValue: (customer) => customer.name, searchValue: (customer) => customer.name },
     { key: 'phone', label: 'Phone', render: (customer) => customer.phone, sortValue: (customer) => customer.phone, searchValue: (customer) => customer.phone },
     { key: 'email', label: 'Email', render: (customer) => customer.email, sortValue: (customer) => customer.email, searchValue: (customer) => customer.email },
     { key: 'repairs', label: 'Repairs', render: (customer) => state.workItems.filter((item) => item.customerId === customer.id).length, sortValue: (customer) => state.workItems.filter((item) => item.customerId === customer.id).length },
+    ...auditColumns<Customer>(),
+    {
+      key: 'actions',
+      label: 'Actions',
+      render: (customer) => (
+        <div className="row-actions" onClick={(event) => event.stopPropagation()}>
+          <button type="button" className="icon-toolbar-button" aria-label={`Edit ${customer.name}`} onClick={() => setEditingId(customer.id)}><Pencil aria-hidden="true" size={14} /></button>
+          <button type="button" className="icon-toolbar-button is-danger" aria-label={`Delete ${customer.name}`} onClick={() => removeCustomer(customer)}><Trash2 aria-hidden="true" size={14} /></button>
+        </div>
+      ),
+    },
   ];
 
   return (
     <DataGrid
+      onBulkDelete={bulkDeleteCustomers}
+      bulkEditFields={customerBulkEditFields}
+      onBulkEditApply={bulkEditCustomers}
       title="Customer master"
       columns={columns}
       rows={state.customers}
@@ -937,7 +1370,149 @@ function CustomersPanel({ state, pushToast }: { state: DeskActions['state']; pus
   );
 }
 
-function TechniciansPanel({ state }: { state: DeskActions['state'] }) {
+function TechnicianForm({
+  technician,
+  onSave,
+  onDone,
+  pushToast,
+}: {
+  technician?: Technician;
+  onSave: (draft: TechnicianDraft) => Promise<void>;
+  onDone: () => void;
+  pushToast: (message: ReactNode, tone?: ToastTone) => void;
+}) {
+  const [draft, setDraft] = useState<TechnicianDraft>({ name: technician?.name ?? '', email: technician?.email ?? '', specialties: technician?.specialties ?? [] });
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const toggleSpecialty = (type: DeviceType) => {
+    setDraft((current) => ({
+      ...current,
+      specialties: current.specialties.includes(type) ? current.specialties.filter((item) => item !== type) : [...current.specialties, type],
+    }));
+  };
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError(null);
+    setIsSubmitting(true);
+    try {
+      await onSave(draft);
+      pushToast(`Saved technician ${draft.name}.`);
+      onDone();
+    } catch (submitError) {
+      const message = submitError instanceof Error ? submitError.message : 'Unable to save technician.';
+      setError(message);
+      pushToast(message, 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <CreatorFormCard title={technician ? 'Edit technician' : 'Create technician'} eyebrow="Technician form">
+      <form className="creator-form" onSubmit={(event) => void submit(event)}>
+        <label>Name<input required value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="Repair bench technician" /></label>
+        <label>Email<input required type="email" value={draft.email} onChange={(event) => setDraft({ ...draft, email: event.target.value })} placeholder="name@servicedesk.local" /></label>
+        <label>Specialties
+          <span className="checkbox-grid">
+            {deviceTypes.map((type) => (
+              <label className="inline-check" key={type}><input type="checkbox" checked={draft.specialties.includes(type)} onChange={() => toggleSpecialty(type)} /> {type}</label>
+            ))}
+          </span>
+        </label>
+        {error && <div className="login-error">{error}</div>}
+        <div className="card-actions">
+          <button className="primary-button" type="submit" disabled={isSubmitting}>{isSubmitting ? 'Saving…' : 'Save changes'}</button>
+          <button className="secondary-button" type="button" onClick={onDone}>Cancel</button>
+        </div>
+      </form>
+    </CreatorFormCard>
+  );
+}
+
+function TechniciansPanel({
+  state,
+  addTechnician,
+  updateTechnician,
+  deleteTechnician,
+  currentUser,
+  pushToast,
+}: {
+  state: DeskActions['state'];
+  addTechnician: DeskActions['addTechnician'];
+  updateTechnician: DeskActions['updateTechnician'];
+  deleteTechnician: DeskActions['deleteTechnician'];
+  currentUser: AuthUser;
+  pushToast: (message: ReactNode, tone?: ToastTone) => void;
+}) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
+  const editingTechnician = editingId ? state.technicians.find((technician) => technician.id === editingId) : undefined;
+
+  const removeTechnician = (technician: Technician) => {
+    const usage = state.workItems.filter((item) => item.assignedTechnicianId === technician.id).length;
+    if (usage > 0) {
+      pushToast(`Cannot delete ${technician.name} — assigned to ${usage} work item${usage === 1 ? '' : 's'}.`, 'error');
+      return;
+    }
+    if (!window.confirm(`Delete technician ${technician.name}? This cannot be undone.`)) {
+      return;
+    }
+    void deleteTechnician(technician.id);
+    pushToast(`Deleted technician ${technician.name}.`);
+  };
+
+  const bulkDeleteTechnicians = (candidates: Technician[]) => {
+    const blocked = candidates.filter((technician) => state.workItems.some((item) => item.assignedTechnicianId === technician.id));
+    const deletable = candidates.filter((technician) => !state.workItems.some((item) => item.assignedTechnicianId === technician.id));
+    if (blocked.length) {
+      pushToast(`${blocked.length} technician${blocked.length === 1 ? '' : 's'} assigned to work items and not deleted: ${blocked.map((technician) => technician.name).join(', ')}.`, 'error');
+    }
+    if (!deletable.length) {
+      return;
+    }
+    if (!window.confirm(`Delete ${deletable.length} technician${deletable.length === 1 ? '' : 's'}? This cannot be undone.`)) {
+      return;
+    }
+    deletable.forEach((technician) => void deleteTechnician(technician.id));
+    pushToast(`Deleted ${deletable.length} technician${deletable.length === 1 ? '' : 's'}.`);
+  };
+
+  const technicianBulkEditFields: BulkEditField<Technician>[] = [
+    { key: 'name', label: 'Name', type: 'text', apply: (value) => ({ name: value }) },
+    { key: 'email', label: 'Email', type: 'text', apply: (value) => ({ email: value }) },
+  ];
+
+  const bulkEditTechnicians = (technicians: Technician[], patch: Partial<Technician>) => {
+    technicians.forEach((technician) => void updateTechnician(technician.id, { name: technician.name, email: technician.email, specialties: technician.specialties, ...patch }, currentUser.name));
+    pushToast(`Updated ${technicians.length} technician${technicians.length === 1 ? '' : 's'}.`);
+  };
+
+  if (isCreating) {
+    return (
+      <div className="record-detail-screen">
+        <button type="button" className="back-link" onClick={() => setIsCreating(false)}>
+          <ChevronLeft aria-hidden="true" size={16} />
+          <span>Back to Technician master</span>
+        </button>
+        <TechnicianForm onSave={(draft) => addTechnician(draft, currentUser.name)} onDone={() => setIsCreating(false)} pushToast={pushToast} />
+      </div>
+    );
+  }
+
+  if (editingTechnician) {
+    return (
+      <div className="record-detail-screen">
+        <button type="button" className="back-link" onClick={() => setEditingId(null)}>
+          <ChevronLeft aria-hidden="true" size={16} />
+          <span>Back to Technician master</span>
+        </button>
+        <TechnicianForm technician={editingTechnician} onSave={(draft) => updateTechnician(editingTechnician.id, draft, currentUser.name)} onDone={() => setEditingId(null)} pushToast={pushToast} />
+      </div>
+    );
+  }
+
   const columns: DataGridColumn<Technician>[] = [
     { key: 'name', label: 'Name', render: (tech) => <strong>{tech.name}</strong>, sortValue: (tech) => tech.name, searchValue: (tech) => tech.name },
     { key: 'email', label: 'Email', render: (tech) => tech.email, sortValue: (tech) => tech.email, searchValue: (tech) => tech.email },
@@ -948,21 +1523,45 @@ function TechniciansPanel({ state }: { state: DeskActions['state'] }) {
       render: (tech) => state.workItems.filter((item) => item.assignedTechnicianId === tech.id && !terminalStatuses.includes(item.status)).length,
       sortValue: (tech) => state.workItems.filter((item) => item.assignedTechnicianId === tech.id && !terminalStatuses.includes(item.status)).length,
     },
+    ...auditColumns<Technician>(),
+    {
+      key: 'actions',
+      label: 'Actions',
+      render: (tech) => (
+        <div className="row-actions" onClick={(event) => event.stopPropagation()}>
+          <button type="button" className="icon-toolbar-button" aria-label={`Edit ${tech.name}`} onClick={() => setEditingId(tech.id)}><Pencil aria-hidden="true" size={14} /></button>
+          <button type="button" className="icon-toolbar-button is-danger" aria-label={`Delete ${tech.name}`} onClick={() => removeTechnician(tech)}><Trash2 aria-hidden="true" size={14} /></button>
+        </div>
+      ),
+    },
   ];
 
-  return <DataGrid title="Technician master" columns={columns} rows={technicians} />;
+  return (
+    <DataGrid
+      onBulkDelete={bulkDeleteTechnicians}
+      bulkEditFields={technicianBulkEditFields}
+      onBulkEditApply={bulkEditTechnicians}
+      title="Technician master"
+      columns={columns}
+      rows={state.technicians}
+      onAddNew={() => setIsCreating(true)}
+      addLabel="New technician"
+    />
+  );
 }
 
 function NewInvoiceForm({
   state,
   createInvoice,
+  actor,
   pushToast,
-  navigate,
+  onDone,
 }: {
   state: DeskActions['state'];
   createInvoice: DeskActions['createInvoice'];
+  actor: string;
   pushToast: (message: ReactNode, tone?: ToastTone) => void;
-  navigate: (id: string) => void;
+  onDone: () => void;
 }) {
   const [invoiceDraft, setInvoiceDraft] = useState<InvoiceDraft>(() => blankInvoiceDraft(state.workItems[0]));
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -973,10 +1572,10 @@ function NewInvoiceForm({
     event.preventDefault();
     setIsSubmitting(true);
     try {
-      await createInvoice(invoiceDraft);
+      await createInvoice(invoiceDraft, actor);
       pushToast(`Invoice issued for ${currencyFormatter.format(invoiceTotal)}.`);
       setInvoiceDraft(blankInvoiceDraft(state.workItems[0]));
-      navigate('invoices-report');
+      onDone();
     } finally {
       setIsSubmitting(false);
     }
@@ -996,7 +1595,10 @@ function NewInvoiceForm({
         <label>Diagnostic fee<input type="number" min="0" value={invoiceDraft.diagnosticFee} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, diagnosticFee: Number(event.target.value) })} /></label>
         <p className="cost-breakdown"><span>Total <strong>{currencyFormatter.format(invoiceTotal)}</strong></span></p>
         <label>Notes<textarea value={invoiceDraft.notes} onChange={(event) => setInvoiceDraft({ ...invoiceDraft, notes: event.target.value })} placeholder={selectedWorkItem?.requiredChanges ?? 'Invoice notes'} /></label>
-        <button className="primary-button icon-button" type="submit" disabled={isSubmitting}><Receipt aria-hidden="true" size={16} /><span>{isSubmitting ? 'Issuing…' : 'Issue invoice'}</span></button>
+        <div className="card-actions">
+          <button className="primary-button icon-button" type="submit" disabled={isSubmitting}><Receipt aria-hidden="true" size={16} /><span>{isSubmitting ? 'Issuing…' : 'Issue invoice'}</span></button>
+          <button type="button" className="secondary-button" onClick={onDone} disabled={isSubmitting}>Cancel</button>
+        </div>
       </form>
     </CreatorFormCard>
   );
@@ -1004,45 +1606,69 @@ function NewInvoiceForm({
 
 function InvoicesReport({
   state,
+  createInvoice,
   updateInvoiceStatus,
   recordInvoicePayment,
+  deleteInvoice,
+  currentUser,
   pushToast,
-  navigate,
 }: {
   state: DeskActions['state'];
+  createInvoice: DeskActions['createInvoice'];
   updateInvoiceStatus: DeskActions['updateInvoiceStatus'];
   recordInvoicePayment: DeskActions['recordInvoicePayment'];
+  deleteInvoice: DeskActions['deleteInvoice'];
+  currentUser: AuthUser;
   pushToast: (message: ReactNode, tone?: ToastTone) => void;
-  navigate: (id: string) => void;
 }) {
-  const changeInvoiceStatus = (invoiceId: string, status: InvoiceStatus) => {
-    if (status === 'Void' && !window.confirm('Void this invoice? This cannot be undone.')) {
-      return Promise.resolve();
-    }
-
-    pushToast(`Invoice ${invoiceId} marked ${status}.`);
-    return updateInvoiceStatus(invoiceId, status);
-  };
+  const [isCreating, setIsCreating] = useState(false);
 
   const submitPayment = async (invoiceId: string, payment: InvoicePaymentDraft) => {
-    await recordInvoicePayment(invoiceId, payment);
+    await recordInvoicePayment(invoiceId, payment, currentUser.name);
     pushToast(`Payment recorded for ${invoiceId} via ${payment.method}.`);
   };
 
-  return <InvoiceList invoices={state.invoices} updateInvoiceStatus={changeInvoiceStatus} recordPayment={submitPayment} pushToast={pushToast} navigate={navigate} />;
+  const changeInvoiceStatus = (invoiceId: string, status: InvoiceStatus) => {
+    void updateInvoiceStatus(invoiceId, status, currentUser.name);
+  };
+
+  if (isCreating) {
+    return (
+      <div className="record-detail-screen">
+        <button type="button" className="back-link" onClick={() => setIsCreating(false)}>
+          <ChevronLeft aria-hidden="true" size={16} />
+          <span>Back to Invoice register</span>
+        </button>
+        <NewInvoiceForm state={state} createInvoice={createInvoice} actor={currentUser.name} pushToast={pushToast} onDone={() => setIsCreating(false)} />
+      </div>
+    );
+  }
+
+  return (
+    <InvoiceList
+      invoices={state.invoices}
+      updateInvoiceStatus={changeInvoiceStatus}
+      recordPayment={submitPayment}
+      deleteInvoice={deleteInvoice}
+      pushToast={pushToast}
+      onAddNew={() => setIsCreating(true)}
+    />
+  );
 }
 
 
 function NewWorkItemForm({
-  state,
+  technicians,
   createWorkItem,
+  actor,
   pushToast,
-  navigate,
+  onDone,
 }: {
-  state: DeskActions['state'];
+  technicians: Technician[];
   createWorkItem: DeskActions['createWorkItem'];
+  actor: string;
   pushToast: (message: ReactNode, tone?: ToastTone) => void;
-  navigate: (id: string) => void;
+  onDone: () => void;
 }) {
   const [draft, setDraft] = useState<WorkItemDraft>(blankDraft);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -1051,35 +1677,32 @@ function NewWorkItemForm({
     event.preventDefault();
     setIsSubmitting(true);
     try {
-      await createWorkItem(draft);
+      await createWorkItem(draft, actor);
       pushToast(<>Created work item for <strong>{draft.customerName}</strong> · <strong>{draft.deviceModel}</strong>.</>);
       setDraft(blankDraft);
-      navigate('wi-all');
+      onDone();
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <CreatorSplit>
-      <CreatorFormCard title="Create a work item" eyebrow="Request form">
-        <p className="muted">Capture online and walk-in customer requests, then assign the WI to a technician.</p>
-        <form className="creator-form" onSubmit={(event) => void submit(event)}>
-          <label>Customer name<input required value={draft.customerName} onChange={(event) => setDraft({ ...draft, customerName: event.target.value })} placeholder="Jane Doe" /></label>
-          <div className="form-row"><label>Phone<input required value={draft.customerPhone} onChange={(event) => setDraft({ ...draft, customerPhone: event.target.value })} placeholder="+1 555 0100" /></label><label>Email<input required type="email" value={draft.customerEmail} onChange={(event) => setDraft({ ...draft, customerEmail: event.target.value })} placeholder="jane@example.com" /></label></div>
-          <div className="form-row"><label>Source<select value={draft.source} onChange={(event) => setDraft({ ...draft, source: event.target.value as WorkItemDraft['source'] })}><option>Walk-in</option><option>Online</option></select></label><label>Priority<select value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: event.target.value as WorkItemDraft['priority'] })}>{priorities.map((priority) => <option key={priority}>{priority}</option>)}</select></label></div>
-          <div className="form-row"><label>Device type<select value={draft.deviceType} onChange={(event) => setDraft({ ...draft, deviceType: event.target.value as DeviceType })}>{deviceTypes.map((type) => <option key={type}>{type}</option>)}</select></label><label>Assigned technician<select value={draft.assignedTechnicianId} onChange={(event) => setDraft({ ...draft, assignedTechnicianId: event.target.value })}>{technicians.map((tech) => <option value={tech.id} key={tech.id}>{tech.name}</option>)}</select></label></div>
-          <label>Device model<input required value={draft.deviceModel} onChange={(event) => setDraft({ ...draft, deviceModel: event.target.value })} placeholder="MacBook Pro M2 / iPhone 14 / Gaming PC" /></label>
-          <label>Serial number<input value={draft.serialNumber} onChange={(event) => setDraft({ ...draft, serialNumber: event.target.value })} placeholder="Optional serial / IMEI" /></label>
-          <label>Issue summary<textarea required value={draft.issueSummary} onChange={(event) => setDraft({ ...draft, issueSummary: event.target.value })} placeholder="Describe symptoms, damage, accessories received, and urgency" /></label>
-          <div className="card-actions">
-            <button type="submit" className="primary-button" disabled={isSubmitting}>{isSubmitting ? 'Creating…' : 'Create WI'}</button>
-            <button type="button" className="secondary-button" onClick={() => navigate('wi-all')} disabled={isSubmitting}>Cancel</button>
-          </div>
-        </form>
-      </CreatorFormCard>
-      <DataGrid title="Recently created" columns={workItemGridColumns} rows={state.workItems.slice(0, 5)} />
-    </CreatorSplit>
+    <CreatorFormCard title="Create a work item" eyebrow="Request form">
+      <p className="muted">Capture online and walk-in customer requests, then assign the WI to a technician.</p>
+      <form className="creator-form" onSubmit={(event) => void submit(event)}>
+        <label>Customer name<input required value={draft.customerName} onChange={(event) => setDraft({ ...draft, customerName: event.target.value })} placeholder="Jane Doe" /></label>
+        <div className="form-row"><label>Phone<input required value={draft.customerPhone} onChange={(event) => setDraft({ ...draft, customerPhone: event.target.value })} placeholder="+1 555 0100" /></label><label>Email<input required type="email" value={draft.customerEmail} onChange={(event) => setDraft({ ...draft, customerEmail: event.target.value })} placeholder="jane@example.com" /></label></div>
+        <div className="form-row"><label>Source<select value={draft.source} onChange={(event) => setDraft({ ...draft, source: event.target.value as WorkItemDraft['source'] })}><option>Walk-in</option><option>Online</option></select></label><label>Priority<select value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: event.target.value as WorkItemDraft['priority'] })}>{priorities.map((priority) => <option key={priority}>{priority}</option>)}</select></label></div>
+        <div className="form-row"><label>Device type<select value={draft.deviceType} onChange={(event) => setDraft({ ...draft, deviceType: event.target.value as DeviceType })}>{deviceTypes.map((type) => <option key={type}>{type}</option>)}</select></label><label>Assigned technician<select value={draft.assignedTechnicianId} onChange={(event) => setDraft({ ...draft, assignedTechnicianId: event.target.value })}>{technicians.map((tech) => <option value={tech.id} key={tech.id}>{tech.name}</option>)}</select></label></div>
+        <label>Device model<input required value={draft.deviceModel} onChange={(event) => setDraft({ ...draft, deviceModel: event.target.value })} placeholder="MacBook Pro M2 / iPhone 14 / Gaming PC" /></label>
+        <label>Serial number<input value={draft.serialNumber} onChange={(event) => setDraft({ ...draft, serialNumber: event.target.value })} placeholder="Optional serial / IMEI" /></label>
+        <label>Issue summary<textarea required value={draft.issueSummary} onChange={(event) => setDraft({ ...draft, issueSummary: event.target.value })} placeholder="Describe symptoms, damage, accessories received, and urgency" /></label>
+        <div className="card-actions">
+          <button type="submit" className="primary-button" disabled={isSubmitting}>{isSubmitting ? 'Creating…' : 'Create WI'}</button>
+          <button type="button" className="secondary-button" onClick={onDone} disabled={isSubmitting}>Cancel</button>
+        </div>
+      </form>
+    </CreatorFormCard>
   );
 }
 
@@ -1088,30 +1711,30 @@ function WorkItemsSection({
   actorRole,
   state,
   initialSelectedId,
+  createWorkItem,
   updateWorkItem,
   cancelWorkItem,
+  deleteWorkItem,
   notifyCustomerNow,
   pushToast,
-  navigate,
 }: {
   subView: 'all' | 'walkins';
   actorRole: UserRole;
   state: DeskActions['state'];
   initialSelectedId?: string | null;
+  createWorkItem: DeskActions['createWorkItem'];
   updateWorkItem: DeskActions['updateWorkItem'];
   cancelWorkItem: DeskActions['cancelWorkItem'];
+  deleteWorkItem: DeskActions['deleteWorkItem'];
   notifyCustomerNow: DeskActions['notifyCustomerNow'];
   pushToast: (message: ReactNode, tone?: ToastTone) => void;
-  navigate: (id: string) => void;
 }) {
-  const [query, setQuery] = useState('');
-  const [selectedId, setSelectedId] = useState(initialSelectedId ?? state.workItems[0]?.id ?? '');
+  const [selectedId, setSelectedId] = useState(initialSelectedId ?? '');
+  const [isCreating, setIsCreating] = useState(false);
+  const title = subView === 'walkins' ? 'Walk-in requests' : 'All work items';
 
-  const filtered = state.workItems.filter((item) =>
-    `${item.id} ${item.customerName} ${item.deviceModel} ${item.status}`.toLowerCase().includes(query.toLowerCase()),
-  );
-  const list = subView === 'walkins' ? filtered.filter((item) => item.source === 'Walk-in') : filtered;
-  const selected = state.workItems.find((item) => item.id === selectedId) ?? list[0];
+  const list = subView === 'walkins' ? state.workItems.filter((item) => item.source === 'Walk-in') : state.workItems;
+  const selected = selectedId ? state.workItems.find((item) => item.id === selectedId) : undefined;
 
   const cancelItem = (workItemId: string) => {
     if (!window.confirm('Cancel this work item? The customer will be notified and this cannot be undone.')) {
@@ -1122,20 +1745,83 @@ function WorkItemsSection({
     pushToast('Work item cancelled.');
   };
 
+  const removeWorkItem = (item: WorkItem) => {
+    if (!window.confirm(`Delete work item ${item.id} (${item.deviceModel})? This also removes its invoices and cannot be undone.`)) {
+      return;
+    }
+    void deleteWorkItem(item.id);
+    pushToast(`Deleted work item ${item.id}.`);
+  };
+
+  const bulkDeleteWorkItems = (items: WorkItem[]) => {
+    if (!window.confirm(`Delete ${items.length} work item${items.length === 1 ? '' : 's'}? This also removes their invoices and cannot be undone.`)) {
+      return;
+    }
+    items.forEach((item) => void deleteWorkItem(item.id));
+    pushToast(`Deleted ${items.length} work item${items.length === 1 ? '' : 's'}.`);
+  };
+
+  const workItemBulkEditFields: BulkEditField<WorkItem>[] = [
+    { key: 'priority', label: 'Priority', type: 'select', options: [...priorities], apply: (value) => ({ priority: value as Priority }) },
+    { key: 'status', label: 'Status', type: 'select', options: [...statusFlow], apply: (value) => ({ status: value as WorkItemStatus }) },
+    {
+      key: 'assignedTechnicianId',
+      label: 'Assigned technician',
+      type: 'select',
+      options: state.technicians.map((tech) => ({ value: tech.id, label: tech.name })),
+      apply: (value) => ({ assignedTechnicianId: value, status: 'Assigned' }),
+    },
+  ];
+
+  const bulkEditWorkItems = (items: WorkItem[], patch: Partial<WorkItem>) => {
+    items.forEach((item) => updateWorkItem(item.id, patch, actorRole, 'Bulk update.'));
+    pushToast(`Updated ${items.length} work item${items.length === 1 ? '' : 's'}.`);
+  };
+
+  const columns: DataGridColumn<WorkItem>[] = [
+    ...workItemGridColumns,
+    {
+      key: 'actions',
+      label: 'Actions',
+      render: (item) => (
+        <div className="row-actions" onClick={(event) => event.stopPropagation()}>
+          <button type="button" className="icon-toolbar-button" aria-label={`Edit ${item.id}`} onClick={() => setSelectedId(item.id)}><Pencil aria-hidden="true" size={14} /></button>
+          <button type="button" className="icon-toolbar-button is-danger" aria-label={`Delete ${item.id}`} onClick={() => removeWorkItem(item)}><Trash2 aria-hidden="true" size={14} /></button>
+        </div>
+      ),
+    },
+  ];
+
+  if (isCreating) {
+    return (
+      <div className="record-detail-screen">
+        <button type="button" className="back-link" onClick={() => setIsCreating(false)}>
+          <ChevronLeft aria-hidden="true" size={16} />
+          <span>Back to {title}</span>
+        </button>
+        <NewWorkItemForm technicians={state.technicians} createWorkItem={createWorkItem} actor={actorRole} pushToast={pushToast} onDone={() => setIsCreating(false)} />
+      </div>
+    );
+  }
+
   return (
     <CreatorRecordBrowser
-      title={subView === 'walkins' ? 'Walk-in requests' : 'All work items'}
+      title={title}
       records={list}
+      columns={columns}
       selected={selected}
-      query={query}
-      setQuery={setQuery}
       setSelectedId={setSelectedId}
-      toolbar={<button type="button" className="primary-button icon-button" onClick={() => navigate('wi-new')}><Plus aria-hidden="true" size={16} /><span>New work item</span></button>}
+      onBack={() => setSelectedId('')}
+      onAddNew={() => setIsCreating(true)}
+      addLabel="New work item"
+      onBulkDelete={bulkDeleteWorkItems}
+      bulkEditFields={workItemBulkEditFields}
+      onBulkEditApply={bulkEditWorkItems}
       detail={selected && (
-        <WorkItemCard item={selected}>
+        <WorkItemCard item={selected} technicians={state.technicians}>
           <div className="card-actions">
             <select aria-label="Reassign technician" value={selected.assignedTechnicianId} onChange={(event) => updateWorkItem(selected.id, { assignedTechnicianId: event.target.value, status: 'Assigned' }, actorRole, `${actorRole} reassigned the work item.`)}>
-              {technicians.map((tech) => <option value={tech.id} key={tech.id}>{tech.name}</option>)}
+              {state.technicians.map((tech) => <option value={tech.id} key={tech.id}>{tech.name}</option>)}
             </select>
             <button type="button" className="secondary-dark-button" onClick={() => { notifyCustomerNow(selected.id); pushToast('Sent a status update to the customer (mock SMS).'); }}>Notify customer</button>
             {!terminalStatuses.includes(selected.status) && <button type="button" className="danger-button" onClick={() => cancelItem(selected.id)}>Cancel</button>}
@@ -1219,13 +1905,13 @@ function MyJobsPanel({
 
   return (
     <div className="creator-record-grid">
-      {visibleItems.map((item) => <TechnicianWorkItem key={item.id} item={item} parts={state.inventoryParts} updateWorkItem={updateWorkItem} adjustInventory={adjustInventory} pushToast={pushToast} />)}
+      {visibleItems.map((item) => <TechnicianWorkItem key={item.id} item={item} parts={state.inventoryParts} technicians={state.technicians} updateWorkItem={updateWorkItem} adjustInventory={adjustInventory} pushToast={pushToast} />)}
       {!visibleItems.length && <EmptyState title="No records in this view" body="Change the technician or view filter to see more work items." />}
     </div>
   );
 }
 
-function TechnicianWorkItem({ item, parts, updateWorkItem, adjustInventory, pushToast }: { item: WorkItem; parts: InventoryPart[]; updateWorkItem: DeskActions['updateWorkItem']; adjustInventory: DeskActions['adjustInventory']; pushToast: (message: ReactNode, tone?: ToastTone) => void }) {
+function TechnicianWorkItem({ item, parts, technicians, updateWorkItem, adjustInventory, pushToast }: { item: WorkItem; parts: InventoryPart[]; technicians: Technician[]; updateWorkItem: DeskActions['updateWorkItem']; adjustInventory: DeskActions['adjustInventory']; pushToast: (message: ReactNode, tone?: ToastTone) => void }) {
   const [analysis, setAnalysis] = useState(item.analysis);
   const [requiredChanges, setRequiredChanges] = useState(item.requiredChanges);
   const [laborEstimate, setLaborEstimate] = useState(String(item.laborEstimate));
@@ -1271,7 +1957,7 @@ function TechnicianWorkItem({ item, parts, updateWorkItem, adjustInventory, push
 
   return (
     <article className="creator-record-card ticket-card editor-card">
-      <WorkItemCard item={item} />
+      <WorkItemCard item={item} technicians={technicians} />
       <label>Analysis<textarea value={analysis} onChange={(event) => setAnalysis(event.target.value)} /></label>
       <label>Required changes<textarea value={requiredChanges} onChange={(event) => setRequiredChanges(event.target.value)} /></label>
       <div className="form-row">
@@ -1304,7 +1990,7 @@ function RepairsPanel({
   const [selectedId, setSelectedId] = useState('');
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const customerItems = state.workItems.filter((item) => item.customerId === selectedCustomerId);
-  const selected = customerItems.find((item) => item.id === selectedId) ?? customerItems[0];
+  const selected = selectedId ? customerItems.find((item) => item.id === selectedId) : undefined;
   const awaitingMyApproval = customerItems.filter((item) => item.status === 'Estimate Shared' && !item.approvedByCustomer).length;
   const completedRepairs = customerItems.filter((item) => item.status === 'Delivered').length;
   const totalPaid = state.invoices.filter((invoice) => invoice.customerId === selectedCustomerId && invoice.status === 'Paid').reduce((sum, invoice) => sum + invoice.amount, 0);
@@ -1331,13 +2017,11 @@ function RepairsPanel({
         title="My repair records"
         records={customerItems}
         selected={selected}
-        query=""
-        setQuery={() => undefined}
         setSelectedId={setSelectedId}
-        hideSearch
+        onBack={() => setSelectedId('')}
         detail={selected && (
           <article className="customer-detail-card">
-            <WorkItemCard item={selected} />
+            <WorkItemCard item={selected} technicians={state.technicians} />
             {selected.status === 'Estimate Shared' && !selected.approvedByCustomer && (
               <button
                 type="button"
@@ -1396,7 +2080,7 @@ function ServiceCatalog({ selectedDeviceType, setSelectedDeviceType, visibleCate
   );
 }
 
-function WorkItemCard({ item, children }: { item: WorkItem; children?: ReactNode }) {
+function WorkItemCard({ item, technicians, children }: { item: WorkItem; technicians: Technician[]; children?: ReactNode }) {
   const technician = technicians.find((tech) => tech.id === item.assignedTechnicianId);
   return (
     <article className="workitem-summary">
@@ -1424,19 +2108,29 @@ function NewPartForm({
   addInventoryPart,
   reset,
   canReset,
+  actor,
   pushToast,
+  editingPart,
+  onDone,
 }: {
   addInventoryPart: DeskActions['addInventoryPart'];
   reset: DeskActions['reset'];
   canReset: boolean;
+  actor: string;
   pushToast: (message: ReactNode, tone?: ToastTone) => void;
+  editingPart?: InventoryPart;
+  onDone?: () => void;
 }) {
-  const [part, setPart] = useState<InventoryPart>(blankPart);
+  const [part, setPart] = useState<InventoryPart>(editingPart ?? blankPart);
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    addInventoryPart({ ...part, sku: part.sku.toUpperCase(), compatibleWith: [part.compatibleWith[0] ?? 'Laptop'] });
-    pushToast(`Saved part ${part.sku.toUpperCase() || part.name}.`);
-    setPart(blankPart);
+    addInventoryPart({ ...part, sku: (editingPart ? editingPart.sku : part.sku.toUpperCase()), compatibleWith: [part.compatibleWith[0] ?? 'Laptop'] }, actor);
+    pushToast(`Saved part ${editingPart ? editingPart.sku : part.sku.toUpperCase() || part.name}.`);
+    if (editingPart) {
+      onDone?.();
+    } else {
+      setPart(blankPart);
+    }
   };
 
   const confirmReset = () => {
@@ -1449,19 +2143,114 @@ function NewPartForm({
   };
 
   return (
-    <CreatorFormCard title="Part form" eyebrow="Inventory">
+    <CreatorFormCard title={editingPart ? 'Edit part' : 'Part form'} eyebrow="Inventory">
       <form className="creator-form" onSubmit={submit}>
-        <label>SKU<input required value={part.sku} onChange={(event) => setPart({ ...part, sku: event.target.value })} placeholder="BAT-MBP-2024" /></label>
+        <label>SKU<input required disabled={!!editingPart} value={part.sku} onChange={(event) => setPart({ ...part, sku: event.target.value })} placeholder="BAT-MBP-2024" /></label>
         <label>Name<input required value={part.name} onChange={(event) => setPart({ ...part, name: event.target.value })} placeholder="MacBook Battery" /></label>
         <div className="form-row"><label>Device<select value={part.compatibleWith[0]} onChange={(event) => setPart({ ...part, compatibleWith: [event.target.value as DeviceType] })}>{deviceTypes.map((type) => <option key={type}>{type}</option>)}</select></label><label>Quantity<input type="number" value={part.quantity} onChange={(event) => setPart({ ...part, quantity: Number(event.target.value) })} /></label></div>
         <div className="form-row"><label>Reorder at<input type="number" value={part.reorderLevel} onChange={(event) => setPart({ ...part, reorderLevel: Number(event.target.value) })} /></label><label>Cost<input type="number" value={part.unitCost} onChange={(event) => setPart({ ...part, unitCost: Number(event.target.value) })} /></label></div>
-        <div className="card-actions"><button className="primary-button" type="submit">Add / update part</button>{canReset && <button className="secondary-dark-button" type="button" onClick={confirmReset}>Reset demo data</button>}</div>
+        <div className="card-actions">
+          <button className="primary-button" type="submit">{editingPart ? 'Save changes' : 'Add / update part'}</button>
+          {editingPart && onDone && <button className="secondary-button" type="button" onClick={onDone}>Cancel</button>}
+          {!editingPart && canReset && <button className="secondary-dark-button" type="button" onClick={confirmReset}>Reset demo data</button>}
+        </div>
       </form>
     </CreatorFormCard>
   );
 }
 
-function InventoryReport({ state, adjustInventory, navigate }: { state: DeskActions['state']; adjustInventory: DeskActions['adjustInventory']; navigate: (id: string) => void }) {
+function partUsageCount(state: DeskActions['state'], sku: string) {
+  return state.workItems.filter((item) => item.partsRequired.includes(sku)).length;
+}
+
+function InventoryReport({
+  state,
+  adjustInventory,
+  addInventoryPart,
+  deleteInventoryPart,
+  reset,
+  currentUser,
+  pushToast,
+}: {
+  state: DeskActions['state'];
+  adjustInventory: DeskActions['adjustInventory'];
+  addInventoryPart: DeskActions['addInventoryPart'];
+  deleteInventoryPart: DeskActions['deleteInventoryPart'];
+  reset: DeskActions['reset'];
+  currentUser: AuthUser;
+  pushToast: (message: ReactNode, tone?: ToastTone) => void;
+}) {
+  const [editingSku, setEditingSku] = useState<string | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
+  const [adjustingSku, setAdjustingSku] = useState<string | null>(null);
+  const editingPart = editingSku ? state.inventoryParts.find((part) => part.sku === editingSku) : undefined;
+  const adjustingPart = adjustingSku ? state.inventoryParts.find((part) => part.sku === adjustingSku) : undefined;
+
+  const deletePart = (part: InventoryPart) => {
+    const usage = partUsageCount(state, part.sku);
+    if (usage > 0) {
+      pushToast(`Cannot delete ${part.name} — it is used by ${usage} work item${usage === 1 ? '' : 's'}.`, 'error');
+      return;
+    }
+    if (!window.confirm(`Delete part ${part.name} (${part.sku})? This cannot be undone.`)) {
+      return;
+    }
+    void deleteInventoryPart(part.sku);
+    pushToast(`Deleted part ${part.name}.`);
+  };
+
+  const bulkDeleteParts = (parts: (InventoryPart & { id: string })[]) => {
+    const blocked = parts.filter((part) => partUsageCount(state, part.sku) > 0);
+    const deletable = parts.filter((part) => partUsageCount(state, part.sku) === 0);
+    if (blocked.length) {
+      pushToast(`${blocked.length} part${blocked.length === 1 ? '' : 's'} in use and not deleted: ${blocked.map((part) => part.sku).join(', ')}.`, 'error');
+    }
+    if (!deletable.length) {
+      return;
+    }
+    if (!window.confirm(`Delete ${deletable.length} part${deletable.length === 1 ? '' : 's'}? This cannot be undone.`)) {
+      return;
+    }
+    deletable.forEach((part) => void deleteInventoryPart(part.sku));
+    pushToast(`Deleted ${deletable.length} part${deletable.length === 1 ? '' : 's'}.`);
+  };
+
+  const partBulkEditFields: BulkEditField<InventoryPart & { id: string }>[] = [
+    { key: 'name', label: 'Name', type: 'text', apply: (value) => ({ name: value }) },
+    { key: 'quantity', label: 'Quantity', type: 'number', apply: (value) => ({ quantity: Math.max(0, Number(value) || 0) }) },
+    { key: 'reorderLevel', label: 'Reorder at', type: 'number', apply: (value) => ({ reorderLevel: Math.max(0, Number(value) || 0) }) },
+    { key: 'unitCost', label: 'Cost', type: 'number', apply: (value) => ({ unitCost: Math.max(0, Number(value) || 0) }) },
+  ];
+
+  const bulkEditParts = (parts: (InventoryPart & { id: string })[], patch: Partial<InventoryPart>) => {
+    parts.forEach((part) => void addInventoryPart({ ...part, ...patch }, currentUser.name));
+    pushToast(`Updated ${parts.length} part${parts.length === 1 ? '' : 's'}.`);
+  };
+
+  if (isCreating) {
+    return (
+      <div className="record-detail-screen">
+        <button type="button" className="back-link" onClick={() => setIsCreating(false)}>
+          <ChevronLeft aria-hidden="true" size={16} />
+          <span>Back to Inventory report</span>
+        </button>
+        <NewPartForm addInventoryPart={addInventoryPart} reset={reset} canReset={false} actor={currentUser.name} pushToast={pushToast} onDone={() => setIsCreating(false)} />
+      </div>
+    );
+  }
+
+  if (editingPart) {
+    return (
+      <div className="record-detail-screen">
+        <button type="button" className="back-link" onClick={() => setEditingSku(null)}>
+          <ChevronLeft aria-hidden="true" size={16} />
+          <span>Back to Inventory report</span>
+        </button>
+        <NewPartForm addInventoryPart={addInventoryPart} reset={reset} canReset={false} actor={currentUser.name} pushToast={pushToast} editingPart={editingPart} onDone={() => setEditingSku(null)} />
+      </div>
+    );
+  }
+
   const columns: DataGridColumn<InventoryPart & { id: string }>[] = [
     { key: 'name', label: 'Name', render: (part) => <strong>{part.name}</strong>, sortValue: (part) => part.name, searchValue: (part) => part.name },
     { key: 'sku', label: 'SKU', render: (part) => part.sku, sortValue: (part) => part.sku, searchValue: (part) => part.sku },
@@ -1469,26 +2258,49 @@ function InventoryReport({ state, adjustInventory, navigate }: { state: DeskActi
     { key: 'stock', label: 'Stock', render: (part) => <span className={part.quantity <= part.reorderLevel ? 'stock-low' : 'stock-ok'}>{part.quantity} in stock</span>, sortValue: (part) => part.quantity },
     { key: 'reorder', label: 'Reorder at', render: (part) => part.reorderLevel, sortValue: (part) => part.reorderLevel },
     { key: 'cost', label: 'Cost', render: (part) => currencyFormatter.format(part.unitCost), sortValue: (part) => part.unitCost },
+    ...auditColumns<InventoryPart & { id: string }>(),
     {
       key: 'adjust',
       label: 'Adjust',
       render: (part) => (
-        <div className="stepper" onClick={(event) => event.stopPropagation()}>
-          <button type="button" aria-label={`Decrease ${part.name} quantity`} onClick={() => adjustInventory(part.sku, -1)}><Minus aria-hidden="true" size={16} /></button>
-          <button type="button" aria-label={`Increase ${part.name} quantity`} onClick={() => adjustInventory(part.sku, 1)}><Plus aria-hidden="true" size={16} /></button>
+        <button
+          type="button"
+          className="icon-toolbar-button"
+          aria-label={`Adjust ${part.name} stock`}
+          onClick={(event) => { event.stopPropagation(); setAdjustingSku(part.sku); }}
+        >
+          <SlidersHorizontal aria-hidden="true" size={14} />
+        </button>
+      ),
+    },
+    {
+      key: 'actions',
+      label: 'Actions',
+      render: (part) => (
+        <div className="row-actions" onClick={(event) => event.stopPropagation()}>
+          <button type="button" className="icon-toolbar-button" aria-label={`Edit ${part.name}`} onClick={() => setEditingSku(part.sku)}><Pencil aria-hidden="true" size={14} /></button>
+          <button type="button" className="icon-toolbar-button is-danger" aria-label={`Delete ${part.name}`} onClick={() => deletePart(part)}><Trash2 aria-hidden="true" size={14} /></button>
         </div>
       ),
     },
   ];
 
   return (
-    <DataGrid
-      title="Inventory report"
-      columns={columns}
-      rows={state.inventoryParts.map((part) => ({ ...part, id: part.sku }))}
-      onAddNew={() => navigate('inventory-new')}
-      addLabel="New part"
-    />
+    <>
+      <DataGrid
+        onBulkDelete={bulkDeleteParts}
+        bulkEditFields={partBulkEditFields}
+        onBulkEditApply={bulkEditParts}
+        title="Inventory report"
+        columns={columns}
+        rows={state.inventoryParts.map((part) => ({ ...part, id: part.sku }))}
+        onAddNew={() => setIsCreating(true)}
+        addLabel="New part"
+      />
+      {adjustingPart && (
+        <AdjustStockModal part={adjustingPart} adjustInventory={adjustInventory} pushToast={pushToast} onClose={() => setAdjustingSku(null)} />
+      )}
+    </>
   );
 }
 
@@ -1496,7 +2308,7 @@ function InventoryView({ state, adjustInventory, addInventoryPart, reset, canMan
   const [part, setPart] = useState<InventoryPart>(blankPart);
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    addInventoryPart({ ...part, sku: part.sku.toUpperCase(), compatibleWith: [part.compatibleWith[0] ?? 'Laptop'] });
+    addInventoryPart({ ...part, sku: part.sku.toUpperCase(), compatibleWith: [part.compatibleWith[0] ?? 'Laptop'] }, 'System');
     pushToast(`Saved part ${part.sku.toUpperCase() || part.name}.`);
     setPart(blankPart);
   };
@@ -1546,19 +2358,61 @@ function InventoryView({ state, adjustInventory, addInventoryPart, reset, canMan
   );
 }
 
+function RecordPaymentModal({
+  invoice,
+  recordPayment,
+  onClose,
+}: {
+  invoice: Invoice;
+  recordPayment: (invoiceId: string, payment: InvoicePaymentDraft) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [method, setMethod] = useState<PaymentMethod>('Card (Test Mode)');
+  const [reference, setReference] = useState('');
+  const [isRecording, setIsRecording] = useState(false);
+
+  const submit = async () => {
+    setIsRecording(true);
+    try {
+      await recordPayment(invoice.id, { method, reference });
+      onClose();
+    } finally {
+      setIsRecording(false);
+    }
+  };
+
+  return (
+    <Modal title={`Record payment — ${invoice.id}`} onClose={onClose}>
+      <div className="creator-form">
+        <label>Payment method<select value={method} onChange={(event) => setMethod(event.target.value as PaymentMethod)}>{paymentMethods.map((option) => <option key={option}>{option}</option>)}</select></label>
+        <label>Reference (optional)<input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Optional reference" /></label>
+        <div className="card-actions">
+          <button type="button" className="primary-button icon-button" onClick={() => void submit()} disabled={isRecording}><CreditCard aria-hidden="true" size={16} /><span>{isRecording ? 'Recording…' : 'Record payment'}</span></button>
+          <button type="button" className="secondary-button" onClick={onClose} disabled={isRecording}>Cancel</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function InvoiceList({
   invoices,
   updateInvoiceStatus,
   recordPayment,
+  deleteInvoice,
   pushToast,
-  navigate,
+  onAddNew,
 }: {
   invoices: Invoice[];
-  updateInvoiceStatus: DeskActions['updateInvoiceStatus'];
+  updateInvoiceStatus: (invoiceId: string, status: InvoiceStatus) => void;
   recordPayment: (invoiceId: string, payment: InvoicePaymentDraft) => Promise<void>;
+  deleteInvoice: DeskActions['deleteInvoice'];
   pushToast: (message: ReactNode, tone?: ToastTone) => void;
-  navigate: (id: string) => void;
+  onAddNew: () => void;
 }) {
+  const [payingId, setPayingId] = useState<string | null>(null);
+  const payingInvoice = payingId ? invoices.find((invoice) => invoice.id === payingId) : undefined;
+
   const exportCsv = () => {
     if (isApiPersistenceEnabled) {
       exportApi.invoicesCsv().catch((error: unknown) => pushToast(error instanceof Error ? error.message : 'Export failed.', 'error'));
@@ -1567,74 +2421,79 @@ function InvoiceList({
     exportInvoicesCsvLocally(invoices);
   };
 
-  return (
-    <div className="creator-list-panel">
-      <div className="list-header">
-        <h3>Invoice register</h3>
-        <div className="card-actions">
-          <span>{invoices.length} records</span>
-          <button type="button" className="secondary-dark-button icon-button" onClick={exportCsv}><Download aria-hidden="true" size={16} /><span>Export CSV</span></button>
-          <button type="button" className="icon-toolbar-button is-primary" aria-label="New invoice" onClick={() => navigate('invoices-new')}><Plus aria-hidden="true" size={16} /></button>
-        </div>
-      </div>
-      {invoices.map((invoice) => (
-        <InvoiceRow key={invoice.id} invoice={invoice} updateInvoiceStatus={updateInvoiceStatus} recordPayment={recordPayment} />
-      ))}
-    </div>
-  );
-}
-
-function InvoiceRow({
-  invoice,
-  updateInvoiceStatus,
-  recordPayment,
-}: {
-  invoice: Invoice;
-  updateInvoiceStatus: DeskActions['updateInvoiceStatus'];
-  recordPayment: (invoiceId: string, payment: InvoicePaymentDraft) => Promise<void>;
-}) {
-  const [method, setMethod] = useState<PaymentMethod>('Card (Test Mode)');
-  const [reference, setReference] = useState('');
-  const [isRecording, setIsRecording] = useState(false);
-
-  const handleRecordPayment = async () => {
-    setIsRecording(true);
-    try {
-      await recordPayment(invoice.id, { method, reference });
-    } finally {
-      setIsRecording(false);
+  const voidInvoice = (invoice: Invoice) => {
+    if (!window.confirm(`Void invoice ${invoice.id}? This cannot be undone.`)) {
+      return;
     }
+    void updateInvoiceStatus(invoice.id, 'Void');
+    pushToast(`Invoice ${invoice.id} voided.`);
   };
 
-  return (
-    <div className="creator-record-card">
-      <div className="ticket-header">
-        <div><strong>{invoice.id} · {invoice.customerName}</strong><span>{invoice.workItemId} · {invoice.issuedAt}</span></div>
-        <span className={`status ${invoice.status.toLowerCase()}`}>{invoice.status}</span>
-      </div>
-      <p className="cost-breakdown">
-        <span>Labor <strong>{currencyFormatter.format(invoice.laborAmount)}</strong></span>
-        <span>Parts <strong>{currencyFormatter.format(invoice.partsAmount)}</strong></span>
-        <span>Diagnostic <strong>{currencyFormatter.format(invoice.diagnosticFee)}</strong></span>
-        <span>Total <strong>{currencyFormatter.format(invoice.amount)}</strong></span>
-      </p>
-      {invoice.status === 'Paid' ? (
-        <span className="muted">Paid via {invoice.paymentMethod || 'unknown method'} · Ref {invoice.paymentReference || '—'}</span>
-      ) : invoice.status === 'Issued' ? (
-        <div className="card-actions">
-          <select aria-label="Payment method" value={method} onChange={(event) => setMethod(event.target.value as PaymentMethod)}>
-            {paymentMethods.map((option) => <option key={option}>{option}</option>)}
-          </select>
-          <input aria-label="Payment reference (optional)" placeholder="Reference (optional)" value={reference} onChange={(event) => setReference(event.target.value)} />
-          <button type="button" className="primary-button icon-button" onClick={() => void handleRecordPayment()} disabled={isRecording}><CreditCard aria-hidden="true" size={16} /><span>{isRecording ? 'Recording…' : 'Record payment'}</span></button>
-          <button type="button" className="danger-button icon-button" onClick={() => updateInvoiceStatus(invoice.id, 'Void')} disabled={isRecording}><XCircle aria-hidden="true" size={16} /><span>Void</span></button>
+  const removeInvoice = (invoice: Invoice) => {
+    if (!window.confirm(`Delete invoice ${invoice.id}? This cannot be undone.`)) {
+      return;
+    }
+    void deleteInvoice(invoice.id);
+    pushToast(`Deleted invoice ${invoice.id}.`);
+  };
+
+  const bulkDeleteInvoices = (selected: Invoice[]) => {
+    if (!window.confirm(`Delete ${selected.length} invoice${selected.length === 1 ? '' : 's'}? This cannot be undone.`)) {
+      return;
+    }
+    selected.forEach((invoice) => void deleteInvoice(invoice.id));
+    pushToast(`Deleted ${selected.length} invoice${selected.length === 1 ? '' : 's'}.`);
+  };
+
+  const invoiceBulkEditFields: BulkEditField<Invoice>[] = [
+    { key: 'status', label: 'Status', type: 'select', options: ['Issued', 'Void'], apply: (value) => ({ status: value as InvoiceStatus }) },
+  ];
+
+  const bulkEditInvoices = (selected: Invoice[], patch: Partial<Invoice>) => {
+    selected.forEach((invoice) => updateInvoiceStatus(invoice.id, (patch.status ?? invoice.status)));
+    pushToast(`Updated ${selected.length} invoice${selected.length === 1 ? '' : 's'}.`);
+  };
+
+  const columns: DataGridColumn<Invoice>[] = [
+    { key: 'id', label: 'Invoice', render: (invoice) => <strong>{invoice.id}</strong>, sortValue: (invoice) => invoice.id, searchValue: (invoice) => invoice.id },
+    { key: 'customer', label: 'Customer', render: (invoice) => invoice.customerName, sortValue: (invoice) => invoice.customerName, searchValue: (invoice) => invoice.customerName },
+    { key: 'workItem', label: 'Work item', render: (invoice) => invoice.workItemId, sortValue: (invoice) => invoice.workItemId, searchValue: (invoice) => invoice.workItemId },
+    { key: 'issued', label: 'Issued', render: (invoice) => invoice.issuedAt, sortValue: (invoice) => invoice.issuedAt },
+    { key: 'amount', label: 'Amount', render: (invoice) => currencyFormatter.format(invoice.amount), sortValue: (invoice) => invoice.amount },
+    { key: 'status', label: 'Status', render: (invoice) => <span className={`status ${invoice.status.toLowerCase()}`}>{invoice.status}</span>, sortValue: (invoice) => invoice.status },
+    ...auditColumns<Invoice>().slice(1),
+    {
+      key: 'actions',
+      label: 'Actions',
+      render: (invoice) => (
+        <div className="row-actions" onClick={(event) => event.stopPropagation()}>
+          {invoice.status === 'Issued' && (
+            <>
+              <button type="button" className="icon-toolbar-button" aria-label={`Record payment for ${invoice.id}`} onClick={() => setPayingId(invoice.id)}><CreditCard aria-hidden="true" size={14} /></button>
+              <button type="button" className="icon-toolbar-button is-danger" aria-label={`Void ${invoice.id}`} onClick={() => voidInvoice(invoice)}><XCircle aria-hidden="true" size={14} /></button>
+            </>
+          )}
+          <button type="button" className="icon-toolbar-button is-danger" aria-label={`Delete ${invoice.id}`} onClick={() => removeInvoice(invoice)}><Trash2 aria-hidden="true" size={14} /></button>
         </div>
-      ) : (
-        <select aria-label="Invoice status" value={invoice.status} onChange={(event) => updateInvoiceStatus(invoice.id, event.target.value as InvoiceStatus)}>
-          {(['Draft', 'Issued', 'Void'] satisfies InvoiceStatus[]).map((status) => <option key={status}>{status}</option>)}
-        </select>
-      )}
-    </div>
+      ),
+    },
+  ];
+
+  return (
+    <>
+      <DataGrid
+        title="Invoice register"
+        columns={columns}
+        rows={invoices}
+        onAddNew={onAddNew}
+        addLabel="New invoice"
+        onBulkDelete={bulkDeleteInvoices}
+        bulkEditFields={invoiceBulkEditFields}
+        onBulkEditApply={bulkEditInvoices}
+        toolbar={<button type="button" className="secondary-dark-button icon-button" onClick={exportCsv}><Download aria-hidden="true" size={16} /><span>Export CSV</span></button>}
+      />
+      {payingInvoice && <RecordPaymentModal invoice={payingInvoice} recordPayment={recordPayment} onClose={() => setPayingId(null)} />}
+    </>
   );
 }
 
@@ -1937,20 +2796,24 @@ function ModuleFrame({
   title,
   subtitle,
   toolbar,
+  showHeader = true,
   children,
 }: {
   title: string;
   subtitle: string;
   toolbar?: ReactNode;
+  showHeader?: boolean;
   children: ReactNode;
 }) {
   return (
     <section className="module-frame">
-      <div className="module-header">
-        <div><p className="eyebrow">Module</p><h2>{title}</h2><p className="module-subtitle">{subtitle}</p></div>
-        {toolbar}
-      </div>
-      <div className="view-canvas">{children}</div>
+      {(showHeader || toolbar) && (
+        <div className="module-header">
+          {showHeader && <div><p className="eyebrow">Module</p><h2>{title}</h2><p className="module-subtitle">{subtitle}</p></div>}
+          {toolbar}
+        </div>
+      )}
+      <div className={showHeader ? 'view-canvas' : 'view-canvas view-canvas-full'}>{children}</div>
     </section>
   );
 }
@@ -1963,31 +2826,121 @@ function CreatorFormCard({ title, eyebrow, children }: { title: string; eyebrow:
   return <section className="creator-form-card"><p className="eyebrow">{eyebrow}</p><h3>{title}</h3>{children}</section>;
 }
 
-function CreatorRecordBrowser({ title, records, selected, query, setQuery, setSelectedId, detail, hideSearch = false, toolbar }: { title: string; records: WorkItem[]; selected?: WorkItem; query: string; setQuery: (query: string) => void; setSelectedId: (id: string) => void; detail?: ReactNode; hideSearch?: boolean; toolbar?: ReactNode }) {
-  const searchId = useId();
+function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [onClose]);
 
   return (
-    <div className="record-browser">
-      <DataGrid
-        title={title}
-        columns={workItemGridColumns}
-        rows={records}
-        selectedId={selected?.id}
-        onRowClick={(item) => setSelectedId(item.id)}
-        toolbar={toolbar}
-        emptyTitle="No records"
-        emptyBody="Nothing matches yet."
-        filter={!hideSearch && (
-          <div className="data-grid-filter">
-            <label className="visually-hidden" htmlFor={searchId}>Search {title}</label>
-            <input id={searchId} className="search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search records" />
-          </div>
-        )}
-      />
-      <div className="creator-detail-panel">
-        {detail ?? <EmptyState title="Select a record" body="Choose a record from the report to open its detail view." />}
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-card" role="dialog" aria-modal="true" aria-label={title} onClick={(event) => event.stopPropagation()}>
+        <div className="modal-header">
+          <h3>{title}</h3>
+          <button type="button" className="modal-close" aria-label="Close" onClick={onClose}><X aria-hidden="true" size={18} /></button>
+        </div>
+        <div className="modal-body">{children}</div>
       </div>
     </div>
+  );
+}
+
+function AdjustStockModal({
+  part,
+  adjustInventory,
+  pushToast,
+  onClose,
+}: {
+  part: InventoryPart;
+  adjustInventory: DeskActions['adjustInventory'];
+  pushToast: (message: ReactNode, tone?: ToastTone) => void;
+  onClose: () => void;
+}) {
+  const [quantity, setQuantity] = useState(part.quantity);
+
+  const save = () => {
+    const delta = quantity - part.quantity;
+    if (delta !== 0) {
+      void adjustInventory(part.sku, delta);
+      pushToast(`Updated ${part.name} stock to ${quantity}.`);
+    }
+    onClose();
+  };
+
+  return (
+    <Modal title={`Adjust stock — ${part.name}`} onClose={onClose}>
+      <div className="stepper stepper-lg">
+        <button type="button" aria-label="Decrease quantity" onClick={() => setQuantity((value) => Math.max(0, value - 1))}><Minus aria-hidden="true" size={18} /></button>
+        <span className="stepper-value">{quantity}</span>
+        <button type="button" aria-label="Increase quantity" onClick={() => setQuantity((value) => value + 1)}><Plus aria-hidden="true" size={18} /></button>
+      </div>
+      <p className="muted">Reorder at {part.reorderLevel} units.</p>
+      <div className="card-actions">
+        <button type="button" className="primary-button" onClick={save}>Save</button>
+        <button type="button" className="secondary-button" onClick={onClose}>Cancel</button>
+      </div>
+    </Modal>
+  );
+}
+
+function CreatorRecordBrowser({
+  title,
+  records,
+  columns = workItemGridColumns,
+  selected,
+  setSelectedId,
+  detail,
+  onAddNew,
+  addLabel,
+  onBulkDelete,
+  bulkEditFields,
+  onBulkEditApply,
+  onBack,
+}: {
+  title: string;
+  records: WorkItem[];
+  columns?: DataGridColumn<WorkItem>[];
+  selected?: WorkItem;
+  setSelectedId: (id: string) => void;
+  detail?: ReactNode;
+  onAddNew?: () => void;
+  addLabel?: string;
+  onBulkDelete?: (rows: WorkItem[]) => void;
+  bulkEditFields?: BulkEditField<WorkItem>[];
+  onBulkEditApply?: (rows: WorkItem[], patch: Partial<WorkItem>) => void;
+  onBack: () => void;
+}) {
+  if (selected) {
+    return (
+      <div className="record-detail-screen">
+        <button type="button" className="back-link" onClick={onBack}>
+          <ChevronLeft aria-hidden="true" size={16} />
+          <span>Back to {title}</span>
+        </button>
+        {detail}
+      </div>
+    );
+  }
+
+  return (
+    <DataGrid
+      title={title}
+      columns={columns}
+      rows={records}
+      onRowClick={(item) => setSelectedId(item.id)}
+      onAddNew={onAddNew}
+      addLabel={addLabel}
+      onBulkDelete={onBulkDelete}
+      bulkEditFields={bulkEditFields}
+      onBulkEditApply={onBulkEditApply}
+      emptyTitle="No records"
+      emptyBody="Nothing matches yet."
+    />
   );
 }
 
@@ -1997,6 +2950,79 @@ interface DataGridColumn<T> {
   render: (row: T) => ReactNode;
   sortValue?: (row: T) => string | number;
   searchValue?: (row: T) => string;
+}
+
+interface BulkEditField<T> {
+  key: string;
+  label: string;
+  type: 'text' | 'number' | 'select';
+  options?: Array<string | { value: string; label: string }>;
+  apply: (value: string) => Partial<T>;
+}
+
+function BulkEditModal<T>({
+  count,
+  fields,
+  onApply,
+  onClose,
+}: {
+  count: number;
+  fields: BulkEditField<T>[];
+  onApply: (patch: Partial<T>) => void;
+  onClose: () => void;
+}) {
+  const [fieldKey, setFieldKey] = useState(fields[0]?.key ?? '');
+  const [value, setValue] = useState('');
+  const selectedField = fields.find((field) => field.key === fieldKey);
+
+  const apply = () => {
+    if (!selectedField || !value) {
+      return;
+    }
+    onApply(selectedField.apply(value));
+    onClose();
+  };
+
+  return (
+    <Modal title={`Bulk edit — ${count} record${count === 1 ? '' : 's'}`} onClose={onClose}>
+      <div className="creator-form">
+        <label>Field
+          <select value={fieldKey} onChange={(event) => { setFieldKey(event.target.value); setValue(''); }}>
+            {fields.map((field) => <option key={field.key} value={field.key}>{field.label}</option>)}
+          </select>
+        </label>
+        {selectedField?.type === 'select' ? (
+          <label>New value
+            <select value={value} onChange={(event) => setValue(event.target.value)}>
+              <option value="">Choose a value…</option>
+              {selectedField.options?.map((option) => {
+                const optionValue = typeof option === 'string' ? option : option.value;
+                const optionLabel = typeof option === 'string' ? option : option.label;
+                return <option key={optionValue} value={optionValue}>{optionLabel}</option>;
+              })}
+            </select>
+          </label>
+        ) : (
+          <label>New value<input type={selectedField?.type === 'number' ? 'number' : 'text'} value={value} onChange={(event) => setValue(event.target.value)} /></label>
+        )}
+        <p className="muted">This replaces the {selectedField?.label.toLowerCase()} on all {count} selected record{count === 1 ? '' : 's'}.</p>
+        <div className="card-actions">
+          <button type="button" className="primary-button" onClick={apply} disabled={!value}>Apply to {count} record{count === 1 ? '' : 's'}</button>
+          <button type="button" className="secondary-button" onClick={onClose}>Cancel</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function auditColumns<T extends { id: string; createdAt: string; createdBy: string; updatedAt: string; updatedBy: string }>(): DataGridColumn<T>[] {
+  return [
+    { key: 'id', label: 'ID', render: (row) => <span className="record-meta">{row.id}</span>, sortValue: (row) => row.id, searchValue: (row) => row.id },
+    { key: 'createdAt', label: 'Added Time', render: (row) => row.createdAt, sortValue: (row) => row.createdAt },
+    { key: 'createdBy', label: 'Added User', render: (row) => row.createdBy, sortValue: (row) => row.createdBy },
+    { key: 'updatedAt', label: 'Modified Time', render: (row) => row.updatedAt, sortValue: (row) => row.updatedAt },
+    { key: 'updatedBy', label: 'Modified User', render: (row) => row.updatedBy, sortValue: (row) => row.updatedBy },
+  ];
 }
 
 function DataGrid<T extends { id: string }>({
@@ -2011,6 +3037,10 @@ function DataGrid<T extends { id: string }>({
   addLabel = 'Add record',
   emptyTitle = 'No records',
   emptyBody = 'This report does not have records yet.',
+  onBulkDelete,
+  bulkDeleteLabel = (count) => `Delete ${count} selected`,
+  bulkEditFields,
+  onBulkEditApply,
 }: {
   title: string;
   columns: DataGridColumn<T>[];
@@ -2023,8 +3053,15 @@ function DataGrid<T extends { id: string }>({
   addLabel?: string;
   emptyTitle?: string;
   emptyBody?: string;
+  onBulkDelete?: (rows: T[]) => void;
+  bulkDeleteLabel?: (count: number) => string;
+  bulkEditFields?: BulkEditField<T>[];
+  onBulkEditApply?: (rows: T[], patch: Partial<T>) => void;
 }) {
   const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [showBulkEdit, setShowBulkEdit] = useState(false);
+  const canBulkEdit = Boolean(bulkEditFields?.length && onBulkEditApply);
+  const hasBulkActions = Boolean(onBulkDelete) || canBulkEdit;
   const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -2111,13 +3148,53 @@ function DataGrid<T extends { id: string }>({
         </div>
       )}
       {filter}
+      {hasBulkActions && checked.size > 0 && (
+        <div className="data-grid-bulk-bar">
+          <span>{checked.size} selected</span>
+          <div className="card-actions">
+            <button type="button" className="secondary-button" onClick={() => setChecked(new Set())}>Clear</button>
+            {canBulkEdit && (
+              <button type="button" className="secondary-dark-button icon-button" onClick={() => setShowBulkEdit(true)}>
+                <Pencil aria-hidden="true" size={15} />
+                <span>Edit {checked.size} selected</span>
+              </button>
+            )}
+            {onBulkDelete && (
+              <button
+                type="button"
+                className="danger-button icon-button"
+                onClick={() => {
+                  onBulkDelete(sortedRows.filter((row) => checked.has(row.id)));
+                  setChecked(new Set());
+                }}
+              >
+                <Trash2 aria-hidden="true" size={15} />
+                <span>{bulkDeleteLabel(checked.size)}</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+      {showBulkEdit && bulkEditFields && onBulkEditApply && (
+        <BulkEditModal
+          count={checked.size}
+          fields={bulkEditFields}
+          onApply={(patch) => {
+            onBulkEditApply(sortedRows.filter((row) => checked.has(row.id)), patch);
+            setChecked(new Set());
+          }}
+          onClose={() => setShowBulkEdit(false)}
+        />
+      )}
       {rows.length ? (
         sortedRows.length ? (
           <div className="data-grid">
             <table className="data-grid-table">
               <thead>
                 <tr>
-                  <th className="data-grid-check-col"><input type="checkbox" aria-label="Select all rows" checked={allChecked} onChange={toggleAll} /></th>
+                  {hasBulkActions && (
+                    <th className="data-grid-check-col"><input type="checkbox" aria-label="Select all rows" checked={allChecked} onChange={toggleAll} /></th>
+                  )}
                   {columns.map((column) => (
                     <th key={column.key}>
                       {column.label}
@@ -2137,9 +3214,11 @@ function DataGrid<T extends { id: string }>({
                     className={[onRowClick && 'is-clickable', selectedId === row.id && 'is-active'].filter(Boolean).join(' ')}
                     onClick={() => onRowClick?.(row)}
                   >
-                    <td className="data-grid-check-col" onClick={(event) => event.stopPropagation()}>
-                      <input type="checkbox" aria-label={`Select row ${row.id}`} checked={checked.has(row.id)} onChange={() => toggleOne(row.id)} />
-                    </td>
+                    {hasBulkActions && (
+                      <td className="data-grid-check-col" onClick={(event) => event.stopPropagation()}>
+                        <input type="checkbox" aria-label={`Select row ${row.id}`} checked={checked.has(row.id)} onChange={() => toggleOne(row.id)} />
+                      </td>
+                    )}
                     {columns.map((column) => <td key={column.key}>{column.render(row)}</td>)}
                   </tr>
                 ))}
@@ -2161,11 +3240,12 @@ function EmptyState({ title, body }: { title: string; body: string }) {
 }
 
 const workItemGridColumns: DataGridColumn<WorkItem>[] = [
-  { key: 'device', label: 'Device', render: (item) => <strong>{item.deviceModel}</strong>, sortValue: (item) => item.deviceModel },
-  { key: 'id', label: 'ID', render: (item) => item.id, sortValue: (item) => item.id },
-  { key: 'customer', label: 'Customer', render: (item) => item.customerName, sortValue: (item) => item.customerName },
-  { key: 'status', label: 'Status', render: (item) => <span className={`status ${item.status.toLowerCase().replaceAll(' ', '-')}`}>{item.status}</span>, sortValue: (item) => item.status },
+  { key: 'device', label: 'Device', render: (item) => <strong>{item.deviceModel}</strong>, sortValue: (item) => item.deviceModel, searchValue: (item) => item.deviceModel },
+  { key: 'id', label: 'ID', render: (item) => item.id, sortValue: (item) => item.id, searchValue: (item) => item.id },
+  { key: 'customer', label: 'Customer', render: (item) => item.customerName, sortValue: (item) => item.customerName, searchValue: (item) => item.customerName },
+  { key: 'status', label: 'Status', render: (item) => <span className={`status ${item.status.toLowerCase().replaceAll(' ', '-')}`}>{item.status}</span>, sortValue: (item) => item.status, searchValue: (item) => item.status },
   { key: 'estimate', label: 'Estimate', render: (item) => currencyFormatter.format(item.estimatedPrice), sortValue: (item) => item.estimatedPrice },
+  ...auditColumns<WorkItem>().slice(1),
 ];
 
 function profileToRole(profile: AuthProfile): UserRole {
@@ -2180,16 +3260,6 @@ function Feature({ title, body }: { title: string; body: string }) {
   return <article className="feature-item"><strong>{title}</strong><span>{body}</span></article>;
 }
 
-function ThemeToggle({ theme, onToggle }: { theme: ThemeMode; onToggle: () => void }) {
-  const nextTheme = theme === 'light' ? 'dark' : 'light';
-
-  return (
-    <button className="theme-toggle" type="button" onClick={onToggle} aria-label={`Switch to ${nextTheme} mode`}>
-      {theme === 'light' ? <Moon aria-hidden="true" size={16} /> : <Sun aria-hidden="true" size={16} />}
-      <span className="toggle-label">{theme === 'light' ? 'Dark' : 'Light'} mode</span>
-    </button>
-  );
-}
 
 type DeskActions = ReturnType<typeof useServiceDesk>;
 

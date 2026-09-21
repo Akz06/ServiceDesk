@@ -18,7 +18,7 @@ const draft: WorkItemDraft = {
 
 describe('serviceDeskStore', () => {
   it('creates a work item and customer record', () => {
-    const next = createWorkItemRecord(initialServiceDeskState, draft);
+    const next = createWorkItemRecord(initialServiceDeskState, draft, 'Agent User');
 
     expect(next.workItems[0]).toMatchObject({
       customerName: 'Sam Taylor',

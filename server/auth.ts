@@ -17,6 +17,9 @@ interface UserRow {
   password_salt: string;
   active: boolean;
   created_at: string;
+  created_by: string;
+  updated_at: string;
+  updated_by: string;
 }
 
 const profileModuleAccess: Record<AuthProfile, ModuleId[]> = {
@@ -62,11 +65,16 @@ function toAuthUser(row: Pick<UserRow, 'id' | 'name' | 'email' | 'role' | 'profi
   };
 }
 
+const formatStamp = (value: string) => new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+
 function toManagedUser(row: UserRow): ManagedUser {
   return {
     ...toAuthUser(row),
     active: row.active,
-    createdAt: new Date(row.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }),
+    createdAt: formatStamp(row.created_at),
+    createdBy: row.created_by,
+    updatedAt: formatStamp(row.updated_at),
+    updatedBy: row.updated_by,
   };
 }
 
@@ -194,7 +202,7 @@ export async function listUsers(): Promise<ManagedUser[]> {
   return result.rows.map(toManagedUser);
 }
 
-export async function createUser(draft: UserDraft): Promise<ManagedUser[]> {
+export async function createUser(draft: UserDraft, actorName: string): Promise<ManagedUser[]> {
   const next = validateUserDraft(draft, true);
   const duplicate = await query<{ id: string }>('SELECT id FROM users WHERE email = $1', [next.email]);
   if (duplicate.rowCount && duplicate.rowCount > 0) {
@@ -203,15 +211,15 @@ export async function createUser(draft: UserDraft): Promise<ManagedUser[]> {
 
   const { salt, hash } = await hashPassword(next.password);
   await query(
-    `INSERT INTO users (id, name, email, role, profile, password_hash, password_salt, active)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-    [`user-${randomBytes(8).toString('hex')}`, next.name, next.email, roleForProfile[next.profile], next.profile, hash, salt, next.active],
+    `INSERT INTO users (id, name, email, role, profile, password_hash, password_salt, active, created_by, updated_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`,
+    [`user-${randomBytes(8).toString('hex')}`, next.name, next.email, roleForProfile[next.profile], next.profile, hash, salt, next.active, actorName],
   );
 
   return listUsers();
 }
 
-export async function updateUser(id: string, draft: UserDraft, actorUserId: string): Promise<ManagedUser[]> {
+export async function updateUser(id: string, draft: UserDraft, actorUserId: string, actorName: string): Promise<ManagedUser[]> {
   const next = validateUserDraft(draft, false);
   const existing = await query<UserRow>('SELECT * FROM users WHERE id = $1', [id]);
   if (!existing.rows[0]) {
@@ -230,23 +238,46 @@ export async function updateUser(id: string, draft: UserDraft, actorUserId: stri
   if (next.password.length > 0) {
     const { salt, hash } = await hashPassword(next.password);
     await query(
-      `UPDATE users SET name = $2, email = $3, role = $4, profile = $5, active = $6, password_hash = $7, password_salt = $8 WHERE id = $1`,
-      [id, next.name, next.email, roleForProfile[next.profile], next.profile, next.active, hash, salt],
+      `UPDATE users SET name = $2, email = $3, role = $4, profile = $5, active = $6, password_hash = $7, password_salt = $8, updated_at = NOW(), updated_by = $9 WHERE id = $1`,
+      [id, next.name, next.email, roleForProfile[next.profile], next.profile, next.active, hash, salt, actorName],
     );
   } else {
-    await query('UPDATE users SET name = $2, email = $3, role = $4, profile = $5, active = $6 WHERE id = $1', [
+    await query('UPDATE users SET name = $2, email = $3, role = $4, profile = $5, active = $6, updated_at = NOW(), updated_by = $7 WHERE id = $1', [
       id,
       next.name,
       next.email,
       roleForProfile[next.profile],
       next.profile,
       next.active,
+      actorName,
     ]);
   }
 
   if (!next.active) {
     await query('DELETE FROM user_sessions WHERE user_id = $1', [id]);
   }
+
+  return listUsers();
+}
+
+export async function deleteUser(id: string, actorUserId: string): Promise<ManagedUser[]> {
+  if (id === actorUserId) {
+    throw new AuthError('You cannot delete your own account.', 400);
+  }
+
+  const existing = await query<UserRow>('SELECT * FROM users WHERE id = $1', [id]);
+  if (!existing.rows[0]) {
+    throw new AuthError('User not found.', 404);
+  }
+
+  if (existing.rows[0].profile === 'admin') {
+    const otherAdmins = await query<{ id: string }>("SELECT id FROM users WHERE profile = 'admin' AND active = TRUE AND id <> $1", [id]);
+    if (!otherAdmins.rowCount || otherAdmins.rowCount === 0) {
+      throw new AuthError('Cannot delete the only active admin account.', 400);
+    }
+  }
+
+  await query('DELETE FROM users WHERE id = $1', [id]);
 
   return listUsers();
 }
