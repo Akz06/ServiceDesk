@@ -166,14 +166,18 @@ export interface Notification {
   read: boolean;
 }
 
+export interface ReportFilter {
+  field: string;
+  value: string;
+}
+
 export interface SavedReport {
   id: string;
   createdBy: string;
   name: string;
   entity: ReportEntity;
   columns: string[];
-  filterField: string;
-  filterValue: string;
+  filters: ReportFilter[];
   createdAt: string;
 }
 
@@ -181,8 +185,7 @@ export interface SavedReportDraft {
   name: string;
   entity: ReportEntity;
   columns: string[];
-  filterField: string;
-  filterValue: string;
+  filters: ReportFilter[];
 }
 
 export interface ServiceDeskState {
@@ -208,6 +211,8 @@ export interface AuthUser {
   role: UserRole;
   profile: AuthProfile;
   moduleAccess: ModuleId[];
+  organizationId: string;
+  organizationName: string;
 }
 
 export interface ManagedUser extends AuthUser {
@@ -229,6 +234,24 @@ export interface UserDraft {
 export interface AuthResponse {
   token: string;
   user: AuthUser;
+}
+
+export interface OrganizationSignupDraft {
+  organizationName: string;
+  adminName: string;
+  adminEmail: string;
+  adminPassword: string;
+}
+
+export interface BulkUserRow {
+  name: string;
+  email: string;
+  profile: AuthProfile;
+}
+
+export interface BulkUserCreationResult {
+  created: Array<{ name: string; email: string; profile: AuthProfile; temporaryPassword: string }>;
+  failed: Array<{ row: number; reason: string }>;
 }
 
 export interface LoginSession {

@@ -4,12 +4,15 @@ import {
   Bell,
   BookOpen,
   Boxes,
+  Building2,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
   Cog,
+  Columns3,
+  Copy,
   CreditCard,
   Download,
   FileBarChart2,
@@ -53,10 +56,12 @@ import { useToast } from './hooks/useToast';
 import type { ToastTone } from './hooks/useToast';
 import { getInitialModuleFromUrl, getOrCreateSessionId, updateUrlForModule } from './services/routing';
 import { getMetrics, getNextStatuses } from './services/serviceDeskStore';
-import { exportApi, isApiPersistenceEnabled, userApi } from './services/apiClient';
+import { isApiPersistenceEnabled, userApi } from './services/apiClient';
 import type {
   AuthProfile,
   AuthUser,
+  BulkUserCreationResult,
+  BulkUserRow,
   Customer,
   DeviceType,
   Invoice,
@@ -69,6 +74,7 @@ import type {
   PaymentMethod,
   Priority,
   ReportEntity,
+  ReportFilter,
   SavedReport,
   SavedReportDraft,
   Technician,
@@ -163,6 +169,7 @@ interface SectionMeta {
  */
 const masterNav: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', modules: ['admin', 'agent', 'technician'], icon: LayoutDashboard },
+  { id: 'organization', label: 'Organization', modules: ['admin'], icon: Building2 },
   { id: 'people', label: 'People', modules: ['admin'], icon: UsersIcon, children: [
     { id: 'users', label: 'Users', modules: ['admin'] },
     { id: 'customers', label: 'Customers', modules: ['admin'] },
@@ -188,10 +195,15 @@ const masterNav: NavItem[] = [
 
 const sectionMeta: Record<string, SectionMeta> = {
   dashboard: { title: 'Dashboard', subtitle: 'A quick operational summary of active work, revenue, and stock.' },
+  organization: { title: 'Organization', subtitle: 'Manage your organization profile and bulk-add staff accounts.' },
   people: { title: 'People directory', subtitle: 'Manage staff accounts and customer/technician master data.' },
   'inventory-report': { title: 'Inventory', subtitle: 'Manage spare-parts stock levels and reorder points.' },
   workitems: { title: 'Work Items', subtitle: 'Create, assign, track, and update repair work items.' },
   myjobs: { title: 'My Jobs', subtitle: 'Diagnose, estimate, and update assigned repair jobs.' },
+  'myjobs-assigned': { title: 'Assigned jobs', subtitle: 'Every open job assigned to this technician.' },
+  'myjobs-estimates': { title: 'Estimates', subtitle: 'Jobs awaiting diagnosis or an estimate to share with the customer.' },
+  'myjobs-repair': { title: 'In repair', subtitle: 'Jobs approved and in progress — repair, parts, or quality check.' },
+  'wi-board': { title: 'Work item board', subtitle: 'Drag jobs through their repair status.' },
   parts: { title: 'Parts', subtitle: 'Read-only view of spare-parts stock.' },
   'invoices-report': { title: 'Invoices', subtitle: 'Create invoices, record payments, and export for accounting.' },
   catalog: { title: 'Service catalog', subtitle: 'Browse repair categories, common issues, and starting prices.' },
@@ -202,7 +214,7 @@ const sectionMeta: Record<string, SectionMeta> = {
 // Most leaf views render their own heading (a DataGrid or form card title), so the
 // generic module header would just repeat it and eat space. Only views with no
 // title of their own — dashboard, the card-style My Jobs tabs, and the Kanban board — need it.
-const viewsNeedingModuleHeader = new Set(['dashboard', 'myjobs-assigned', 'myjobs-estimates', 'myjobs-repair', 'wi-board']);
+const viewsNeedingModuleHeader = new Set(['dashboard', 'organization', 'myjobs-assigned', 'myjobs-estimates', 'myjobs-repair', 'wi-board']);
 
 const visibleNavFor = (moduleAccess: ModuleId[]): NavItem[] => {
   const isVisible = (item: NavItem) => item.modules.some((moduleId) => moduleAccess.includes(moduleId));
@@ -274,8 +286,13 @@ function HomePage({
   auth: ReturnType<typeof useAuth>;
   onLoginSuccess: (user: AuthUser) => void;
 }) {
+  const [authTab, setAuthTab] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('admin@servicedesk.local');
   const [password, setPassword] = useState('Admin@12345');
+  const [organizationName, setOrganizationName] = useState('');
+  const [adminName, setAdminName] = useState('');
+  const [signupEmail, setSignupEmail] = useState('');
+  const [signupPassword, setSignupPassword] = useState('');
 
   const performLogin = async (loginEmail: string, loginPassword: string) => {
     const user = await auth.login(loginEmail, loginPassword);
@@ -291,6 +308,12 @@ function HomePage({
     setEmail(credential.email);
     setPassword(credential.password);
     await performLogin(credential.email, credential.password);
+  };
+
+  const submitSignup = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const user = await auth.signup({ organizationName, adminName, adminEmail: signupEmail, adminPassword: signupPassword });
+    onLoginSuccess(user);
   };
 
   return (
@@ -323,23 +346,46 @@ function HomePage({
         </div>
 
         <aside className="login-panel" id="login" aria-label="Login panel">
-          <p className="eyebrow">Secure workspace</p>
-          <h2>Login to your module</h2>
-          <p className="muted">Secure login with staff accounts and sessions. Demo accounts are ready to try below.</p>
-          <form className="login-form" onSubmit={(event) => void submit(event)}>
-            <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
-            <label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={8} /></label>
-            {auth.authError && <div className="login-error">{auth.authError}</div>}
-            <button className="primary-button full-width" type="submit" disabled={auth.isAuthenticating}>{auth.isAuthenticating ? 'Logging in…' : 'Login securely'}</button>
-          </form>
-          <div className="credential-grid" aria-label="Demo credentials">
-            {demoCredentials.map((credential) => (
-              <button className="credential-card" type="button" key={credential.email} onClick={() => void loginWithCredential(credential)}>
-                <strong>{credential.label}</strong>
-                <span>{credential.email}</span>
-              </button>
-            ))}
+          <div className="auth-tabs" role="tablist">
+            <button type="button" role="tab" aria-selected={authTab === 'login'} className={authTab === 'login' ? 'auth-tab is-active' : 'auth-tab'} onClick={() => setAuthTab('login')}>Login</button>
+            <button type="button" role="tab" aria-selected={authTab === 'signup'} className={authTab === 'signup' ? 'auth-tab is-active' : 'auth-tab'} onClick={() => setAuthTab('signup')}>Create organization</button>
           </div>
+
+          {authTab === 'login' ? (
+            <>
+              <p className="eyebrow">Secure workspace</p>
+              <h2>Login to your module</h2>
+              <p className="muted">Secure login with staff accounts and sessions. Demo accounts are ready to try below.</p>
+              <form className="login-form" onSubmit={(event) => void submit(event)}>
+                <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
+                <label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={8} /></label>
+                {auth.authError && <div className="login-error">{auth.authError}</div>}
+                <button className="primary-button full-width" type="submit" disabled={auth.isAuthenticating}>{auth.isAuthenticating ? 'Logging in…' : 'Login securely'}</button>
+              </form>
+              <div className="credential-grid" aria-label="Demo credentials">
+                {demoCredentials.map((credential) => (
+                  <button className="credential-card" type="button" key={credential.email} onClick={() => void loginWithCredential(credential)}>
+                    <strong>{credential.label}</strong>
+                    <span>{credential.email}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="eyebrow">Organization setup</p>
+              <h2>Create your organization</h2>
+              <p className="muted">Set up a brand-new, fully isolated workspace and become its first Admin.</p>
+              <form className="login-form" onSubmit={(event) => void submitSignup(event)}>
+                <label>Organization name<input value={organizationName} onChange={(event) => setOrganizationName(event.target.value)} required placeholder="Acme Repairs" /></label>
+                <label>Your name<input value={adminName} onChange={(event) => setAdminName(event.target.value)} required placeholder="Jane Doe" /></label>
+                <label>Email<input type="email" value={signupEmail} onChange={(event) => setSignupEmail(event.target.value)} required placeholder="jane@acme.com" /></label>
+                <label>Password<input type="password" value={signupPassword} onChange={(event) => setSignupPassword(event.target.value)} required minLength={8} placeholder="Minimum 8 characters" /></label>
+                {auth.authError && <div className="login-error">{auth.authError}</div>}
+                <button className="primary-button full-width" type="submit" disabled={auth.isAuthenticating}>{auth.isAuthenticating ? 'Creating organization…' : 'Create organization'}</button>
+              </form>
+            </>
+          )}
         </aside>
       </section>
 
@@ -408,12 +454,24 @@ function Workspace({
 
   const groupId = groupIdFor(activeView);
   const isDashboard = activeView === 'dashboard';
-  const meta = sectionMeta[groupId] ?? { title: appName, subtitle: '' };
+  const meta = sectionMeta[activeView] ?? sectionMeta[groupId] ?? { title: appName, subtitle: '' };
   const toolbar =
     groupId === 'myjobs' ? (
-      <label className="filter-control compact-control">Technician<select value={selectedTechnicianId} onChange={(event) => setSelectedTechnicianId(event.target.value)}>{state.technicians.map((tech) => <option value={tech.id} key={tech.id}>{tech.name}</option>)}</select></label>
+      <label className="filter-control compact-control">
+        Technician
+        <select value={selectedTechnicianId} onChange={(event) => setSelectedTechnicianId(event.target.value)}>
+          {user.role === 'Admin' && <option value="all">All technicians</option>}
+          {state.technicians.map((tech) => <option value={tech.id} key={tech.id}>{tech.name}</option>)}
+        </select>
+      </label>
     ) : groupId === 'repairs' ? (
-      <label className="filter-control compact-control">Customer<select value={effectiveCustomerId} onChange={(event) => setSelectedCustomerId(event.target.value)}>{state.customers.map((customer) => <option value={customer.id} key={customer.id}>{customer.name}</option>)}</select></label>
+      <label className="filter-control compact-control">
+        Customer
+        <select value={effectiveCustomerId} onChange={(event) => setSelectedCustomerId(event.target.value)}>
+          {user.role === 'Admin' && <option value="all">All customers</option>}
+          {state.customers.map((customer) => <option value={customer.id} key={customer.id}>{customer.name}</option>)}
+        </select>
+      </label>
     ) : undefined;
 
   return (
@@ -603,6 +661,7 @@ function WorkspaceContent(
     adjustInventory,
     addInventoryPart,
     deleteInventoryPart,
+    addCustomer,
     updateCustomer,
     deleteCustomer,
     addTechnician,
@@ -634,9 +693,11 @@ function WorkspaceContent(
         <DashboardPanel profile={currentUser.profile} state={state} selectedTechnicianId={selectedTechnicianId} navigate={navigate} moduleAccess={currentUser.moduleAccess} />
       )}
 
+      {activeView === 'organization' && <OrganizationPanel currentUser={currentUser} navigate={navigate} />}
+
       {activeView === 'users' && <UsersReport currentUser={currentUser} pushToast={pushToast} />}
       {activeView === 'customers' && (
-        <CustomersPanel state={state} updateCustomer={updateCustomer} deleteCustomer={deleteCustomer} currentUser={currentUser} pushToast={pushToast} />
+        <CustomersPanel state={state} addCustomer={addCustomer} updateCustomer={updateCustomer} deleteCustomer={deleteCustomer} currentUser={currentUser} pushToast={pushToast} />
       )}
       {activeView === 'technicians' && (
         <TechniciansPanel
@@ -680,7 +741,7 @@ function WorkspaceContent(
       {(activeView === 'myjobs-assigned' || activeView === 'myjobs-estimates' || activeView === 'myjobs-repair') && (
         <MyJobsPanel activeView={activeView} state={state} selectedTechnicianId={selectedTechnicianId} updateWorkItem={updateWorkItem} adjustInventory={adjustInventory} pushToast={pushToast} />
       )}
-      {activeView === 'parts' && <InventoryView {...props} canManage={false} canReset={false} pushToast={pushToast} />}
+      {activeView === 'parts' && <InventoryView state={state} adjustInventory={adjustInventory} />}
 
       {activeView === 'invoices-report' && (
         <InvoicesReport
@@ -858,9 +919,9 @@ const MANAGED_USERS_STORAGE_KEY = 'service-desk-managed-users';
 
 const seedManagedUsers = (currentUser: AuthUser): ManagedUser[] => [
   { ...currentUser, active: true, createdAt: 'Local demo', createdBy: 'System', updatedAt: 'Local demo', updatedBy: 'System' },
-  { id: 'user-agent', name: 'Agent User', email: 'agent@servicedesk.local', role: 'Agent', profile: 'agent', moduleAccess: ['agent'], active: true, createdAt: 'Local demo', createdBy: 'System', updatedAt: 'Local demo', updatedBy: 'System' },
-  { id: 'user-technician', name: 'Technician User', email: 'tech@servicedesk.local', role: 'Technician', profile: 'technician', moduleAccess: ['technician'], active: true, createdAt: 'Local demo', createdBy: 'System', updatedAt: 'Local demo', updatedBy: 'System' },
-  { id: 'user-customer', name: 'Customer User', email: 'customer@servicedesk.local', role: 'Customer', profile: 'customer', moduleAccess: ['customer'], active: true, createdAt: 'Local demo', createdBy: 'System', updatedAt: 'Local demo', updatedBy: 'System' },
+  { id: 'user-agent', name: 'Agent User', email: 'agent@servicedesk.local', role: 'Agent', profile: 'agent', moduleAccess: ['agent'], organizationId: currentUser.organizationId, organizationName: currentUser.organizationName, active: true, createdAt: 'Local demo', createdBy: 'System', updatedAt: 'Local demo', updatedBy: 'System' },
+  { id: 'user-technician', name: 'Technician User', email: 'tech@servicedesk.local', role: 'Technician', profile: 'technician', moduleAccess: ['technician'], organizationId: currentUser.organizationId, organizationName: currentUser.organizationName, active: true, createdAt: 'Local demo', createdBy: 'System', updatedAt: 'Local demo', updatedBy: 'System' },
+  { id: 'user-customer', name: 'Customer User', email: 'customer@servicedesk.local', role: 'Customer', profile: 'customer', moduleAccess: ['customer'], organizationId: currentUser.organizationId, organizationName: currentUser.organizationName, active: true, createdAt: 'Local demo', createdBy: 'System', updatedAt: 'Local demo', updatedBy: 'System' },
 ];
 
 const loadLocalManagedUsers = (currentUser: AuthUser): ManagedUser[] => {
@@ -896,6 +957,8 @@ function NewUserForm({ currentUser, pushToast, onDone }: { currentUser: AuthUser
         id: `local-${Date.now()}`,
         role: profileToRole(userDraft.profile),
         moduleAccess: profileToModules(userDraft.profile),
+        organizationId: currentUser.organizationId,
+        organizationName: currentUser.organizationName,
         createdAt: nowStamp(),
         createdBy: currentUser.name,
         updatedAt: nowStamp(),
@@ -984,6 +1047,209 @@ function UserEditForm({
         </div>
       </form>
     </CreatorFormCard>
+  );
+}
+
+function OrganizationPanel({
+  currentUser,
+  navigate,
+}: {
+  currentUser: AuthUser;
+  navigate: (id: string, recordId?: string) => void;
+}) {
+  const [showBulkAdd, setShowBulkAdd] = useState(false);
+
+  return (
+    <div className="creator-page">
+      <section className="creator-panel">
+        <div className="creator-panel-header">
+          <div>
+            <p className="eyebrow">Organization profile</p>
+            <h2>{currentUser.organizationName}</h2>
+            <p className="module-subtitle">Organization ID: {currentUser.organizationId}</p>
+          </div>
+          <div className="card-actions">
+            <button type="button" className="secondary-dark-button" onClick={() => navigate('users')}>View all users</button>
+            <button type="button" className="primary-button icon-button" onClick={() => setShowBulkAdd(true)}>
+              <UserPlus aria-hidden="true" size={16} />
+              <span>Bulk add users</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {showBulkAdd && (
+        <Modal title="Bulk add users" onClose={() => setShowBulkAdd(false)}>
+          <BulkAddUsersForm currentUser={currentUser} onDone={() => setShowBulkAdd(false)} />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function parseUserCsv(text: string): { rows: BulkUserRow[]; errors: Array<{ row: number; reason: string }> } {
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0);
+  if (!lines.length) {
+    return { rows: [], errors: [] };
+  }
+
+  const firstCells = lines[0].split(',').map((cell) => cell.trim().toLowerCase());
+  const hasHeader = firstCells.includes('name') && firstCells.includes('email');
+  const dataLines = hasHeader ? lines.slice(1) : lines;
+
+  const rows: BulkUserRow[] = [];
+  const errors: Array<{ row: number; reason: string }> = [];
+
+  dataLines.forEach((line, index) => {
+    const rowNumber = index + 1;
+    const [name = '', email = '', profileRaw = ''] = line.split(',').map((cell) => cell.trim());
+
+    if (!name || !email || !profileRaw) {
+      errors.push({ row: rowNumber, reason: 'Expected 3 columns: name, email, profile.' });
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      errors.push({ row: rowNumber, reason: `Invalid email "${email}".` });
+      return;
+    }
+    const profile = profileRaw.toLowerCase() as AuthProfile;
+    if (!authProfiles.includes(profile)) {
+      errors.push({ row: rowNumber, reason: `Invalid profile "${profileRaw}" — use one of ${authProfiles.join(', ')}.` });
+      return;
+    }
+
+    rows.push({ name, email: email.toLowerCase(), profile });
+  });
+
+  return { rows, errors };
+}
+
+function generateTemporaryPassword(): string {
+  return `${Math.random().toString(36).slice(2, 8)}${Math.random().toString(36).slice(2, 6)}Aa1`;
+}
+
+function BulkAddUsersForm({ currentUser, onDone }: { currentUser: AuthUser; onDone: () => void }) {
+  const [csvText, setCsvText] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [result, setResult] = useState<BulkUserCreationResult | null>(null);
+
+  const { rows: parsedRows, errors: parseErrors } = useMemo(() => parseUserCsv(csvText), [csvText]);
+
+  const submit = async () => {
+    if (!parsedRows.length) {
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      if (!isApiPersistenceEnabled) {
+        const existing = loadLocalManagedUsers(currentUser);
+        const existingEmails = new Set(existing.map((user) => user.email.toLowerCase()));
+        const created: BulkUserCreationResult['created'] = [];
+        const failed: BulkUserCreationResult['failed'] = [];
+        const newUsers: ManagedUser[] = [];
+        const stamp = nowStamp();
+
+        parsedRows.forEach((row, index) => {
+          if (existingEmails.has(row.email)) {
+            failed.push({ row: index + 1, reason: 'A user with this email already exists.' });
+            return;
+          }
+          const temporaryPassword = generateTemporaryPassword();
+          newUsers.push({
+            id: `local-${Date.now()}-${index}`,
+            name: row.name,
+            email: row.email,
+            profile: row.profile,
+            role: profileToRole(row.profile),
+            moduleAccess: profileToModules(row.profile),
+            organizationId: currentUser.organizationId,
+            organizationName: currentUser.organizationName,
+            active: true,
+            createdAt: stamp,
+            createdBy: currentUser.name,
+            updatedAt: stamp,
+            updatedBy: currentUser.name,
+          });
+          existingEmails.add(row.email);
+          created.push({ name: row.name, email: row.email, profile: row.profile, temporaryPassword });
+        });
+
+        saveLocalManagedUsers([...newUsers, ...existing]);
+        setResult({ created, failed });
+      } else {
+        setResult(await userApi.bulkCreate(parsedRows));
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (result) {
+    return (
+      <div className="creator-form">
+        {result.created.length > 0 && (
+          <div className="creator-list-panel">
+            <ListHeader title="Created" count={result.created.length} />
+            {result.created.map((user) => (
+              <div className="record-row" key={user.email}>
+                <div><strong>{user.name}</strong><span>{user.email} · {user.profile}</span></div>
+                <div className="card-actions">
+                  <code>{user.temporaryPassword}</code>
+                  <button
+                    type="button"
+                    className="icon-toolbar-button"
+                    aria-label={`Copy password for ${user.name}`}
+                    onClick={() => void navigator.clipboard.writeText(user.temporaryPassword)}
+                  >
+                    <Copy aria-hidden="true" size={14} />
+                  </button>
+                </div>
+              </div>
+            ))}
+            <p className="workflow-warning">These temporary passwords are shown once — copy and share them with each user now.</p>
+          </div>
+        )}
+        {result.failed.length > 0 && (
+          <div className="creator-list-panel">
+            <ListHeader title="Failed" count={result.failed.length} />
+            {result.failed.map((failure) => (
+              <div className="record-row" key={failure.row}>
+                <div><strong>Row {failure.row}</strong><span>{failure.reason}</span></div>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="card-actions">
+          <button type="button" className="primary-button" onClick={onDone}>Done</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="creator-form">
+      <label>
+        Paste CSV — one user per line: name, email, profile ({authProfiles.join('/')})
+        <textarea
+          rows={8}
+          value={csvText}
+          onChange={(event) => setCsvText(event.target.value)}
+          placeholder={'Jane Doe, jane@example.com, agent\nJohn Smith, john@example.com, technician'}
+        />
+      </label>
+      {parseErrors.length > 0 && (
+        <ul className="timeline">
+          {parseErrors.map((error) => <li key={error.row}>Row {error.row}: {error.reason}</li>)}
+        </ul>
+      )}
+      {parsedRows.length > 0 && <p className="muted">{parsedRows.length} valid row{parsedRows.length === 1 ? '' : 's'} ready to create.</p>}
+      <div className="card-actions">
+        <button type="button" className="primary-button" onClick={() => void submit()} disabled={!parsedRows.length || isSubmitting}>
+          {isSubmitting ? 'Creating…' : `Create ${parsedRows.length || ''} user${parsedRows.length === 1 ? '' : 's'}`}
+        </button>
+        <button type="button" className="secondary-button" onClick={onDone} disabled={isSubmitting}>Cancel</button>
+      </div>
+    </div>
   );
 }
 
@@ -1265,20 +1531,64 @@ function CustomerEditForm({
   );
 }
 
+function NewCustomerForm({
+  addCustomer,
+  actor,
+  pushToast,
+  onDone,
+}: {
+  addCustomer: DeskActions['addCustomer'];
+  actor: string;
+  pushToast: (message: ReactNode, tone?: ToastTone) => void;
+  onDone: () => void;
+}) {
+  const [draft, setDraft] = useState({ name: '', phone: '', email: '' });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setIsSubmitting(true);
+    try {
+      await addCustomer(draft, actor);
+      pushToast(`Added customer ${draft.name}.`);
+      onDone();
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <CreatorFormCard title="Create customer" eyebrow="Customer master">
+      <form className="creator-form" onSubmit={(event) => void submit(event)}>
+        <label>Name<input required value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="Jane Doe" /></label>
+        <label>Phone<input required value={draft.phone} onChange={(event) => setDraft({ ...draft, phone: event.target.value })} placeholder="+1 555 0100" /></label>
+        <label>Email<input required type="email" value={draft.email} onChange={(event) => setDraft({ ...draft, email: event.target.value })} placeholder="jane@example.com" /></label>
+        <div className="card-actions">
+          <button className="primary-button" type="submit" disabled={isSubmitting}>{isSubmitting ? 'Creating…' : 'Create customer'}</button>
+          <button className="secondary-button" type="button" onClick={onDone} disabled={isSubmitting}>Cancel</button>
+        </div>
+      </form>
+    </CreatorFormCard>
+  );
+}
+
 function CustomersPanel({
   state,
+  addCustomer,
   updateCustomer,
   deleteCustomer,
   currentUser,
   pushToast,
 }: {
   state: DeskActions['state'];
+  addCustomer: DeskActions['addCustomer'];
   updateCustomer: DeskActions['updateCustomer'];
   deleteCustomer: DeskActions['deleteCustomer'];
   currentUser: AuthUser;
   pushToast: (message: ReactNode, tone?: ToastTone) => void;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
   const editingCustomer = editingId ? state.customers.find((customer) => customer.id === editingId) : undefined;
 
   const removeCustomer = (customer: Customer) => {
@@ -1321,6 +1631,18 @@ function CustomersPanel({
     pushToast(`Updated ${customers.length} customer${customers.length === 1 ? '' : 's'}.`);
   };
 
+  if (isCreating) {
+    return (
+      <div className="record-detail-screen">
+        <button type="button" className="back-link" onClick={() => setIsCreating(false)}>
+          <ChevronLeft aria-hidden="true" size={16} />
+          <span>Back to Customer master</span>
+        </button>
+        <NewCustomerForm addCustomer={addCustomer} actor={currentUser.name} pushToast={pushToast} onDone={() => setIsCreating(false)} />
+      </div>
+    );
+  }
+
   if (editingCustomer) {
     return (
       <div className="record-detail-screen">
@@ -1359,13 +1681,8 @@ function CustomersPanel({
       title="Customer master"
       columns={columns}
       rows={state.customers}
-      toolbar={<button type="button" className="secondary-dark-button icon-button" onClick={() => {
-        if (isApiPersistenceEnabled) {
-          void exportApi.customersCsv().catch((error: unknown) => pushToast(error instanceof Error ? error.message : 'Export failed.', 'error'));
-          return;
-        }
-        exportCustomersCsvLocally(state);
-      }}><Download aria-hidden="true" size={16} /><span>Export CSV</span></button>}
+      onAddNew={() => setIsCreating(true)}
+      addLabel="New customer"
     />
   );
 }
@@ -1898,16 +2215,41 @@ function MyJobsPanel({
   adjustInventory: DeskActions['adjustInventory'];
   pushToast: (message: ReactNode, tone?: ToastTone) => void;
 }) {
-  const assignedItems = state.workItems.filter((item) => item.assignedTechnicianId === selectedTechnicianId && item.status !== 'Cancelled');
+  const assignedItems = state.workItems.filter((item) => (selectedTechnicianId === 'all' || item.assignedTechnicianId === selectedTechnicianId) && item.status !== 'Cancelled');
   const estimateItems = assignedItems.filter((item) => item.status === 'Diagnosis' || item.status === 'Estimate Shared');
   const repairItems = assignedItems.filter((item) => item.status === 'Customer Approved' || item.status === 'In Repair' || item.status === 'Waiting for Parts' || item.status === 'Quality Check');
   const visibleItems = activeView === 'myjobs-estimates' ? estimateItems : activeView === 'myjobs-repair' ? repairItems : assignedItems;
 
+  const [page, setPage] = useState(0);
+  const pageResetKey = `${activeView}|${selectedTechnicianId}`;
+  const [prevPageResetKey, setPrevPageResetKey] = useState(pageResetKey);
+  if (pageResetKey !== prevPageResetKey) {
+    setPrevPageResetKey(pageResetKey);
+    if (page !== 0) {
+      setPage(0);
+    }
+  }
+
+  const pageCount = Math.max(1, Math.ceil(visibleItems.length / MY_JOBS_PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount - 1);
+  const pageItems = visibleItems.slice(currentPage * MY_JOBS_PAGE_SIZE, currentPage * MY_JOBS_PAGE_SIZE + MY_JOBS_PAGE_SIZE);
+
   return (
-    <div className="creator-record-grid">
-      {visibleItems.map((item) => <TechnicianWorkItem key={item.id} item={item} parts={state.inventoryParts} technicians={state.technicians} updateWorkItem={updateWorkItem} adjustInventory={adjustInventory} pushToast={pushToast} />)}
-      {!visibleItems.length && <EmptyState title="No records in this view" body="Change the technician or view filter to see more work items." />}
-    </div>
+    <>
+      <div className="creator-record-grid">
+        {pageItems.map((item) => <TechnicianWorkItem key={item.id} item={item} parts={state.inventoryParts} technicians={state.technicians} updateWorkItem={updateWorkItem} adjustInventory={adjustInventory} pushToast={pushToast} />)}
+        {!visibleItems.length && <EmptyState title="No records in this view" body="Change the technician or view filter to see more work items." />}
+      </div>
+      {pageCount > 1 && (
+        <div className="data-grid-pagination">
+          <span>Page {currentPage + 1} of {pageCount} · {visibleItems.length} records</span>
+          <div className="card-actions">
+            <button type="button" className="secondary-button" onClick={() => setPage((value) => Math.max(0, value - 1))} disabled={currentPage === 0}>Previous</button>
+            <button type="button" className="secondary-button" onClick={() => setPage((value) => Math.min(pageCount - 1, value + 1))} disabled={currentPage >= pageCount - 1}>Next</button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -1989,11 +2331,11 @@ function RepairsPanel({
 }) {
   const [selectedId, setSelectedId] = useState('');
   const [approvingId, setApprovingId] = useState<string | null>(null);
-  const customerItems = state.workItems.filter((item) => item.customerId === selectedCustomerId);
+  const customerItems = state.workItems.filter((item) => selectedCustomerId === 'all' || item.customerId === selectedCustomerId);
   const selected = selectedId ? customerItems.find((item) => item.id === selectedId) : undefined;
   const awaitingMyApproval = customerItems.filter((item) => item.status === 'Estimate Shared' && !item.approvedByCustomer).length;
   const completedRepairs = customerItems.filter((item) => item.status === 'Delivered').length;
-  const totalPaid = state.invoices.filter((invoice) => invoice.customerId === selectedCustomerId && invoice.status === 'Paid').reduce((sum, invoice) => sum + invoice.amount, 0);
+  const totalPaid = state.invoices.filter((invoice) => (selectedCustomerId === 'all' || invoice.customerId === selectedCustomerId) && invoice.status === 'Paid').reduce((sum, invoice) => sum + invoice.amount, 0);
 
   const approve = async (workItemId: string) => {
     setApprovingId(workItemId);
@@ -2005,16 +2347,18 @@ function RepairsPanel({
     }
   };
 
+  const viewingAll = selectedCustomerId === 'all';
+
   return (
     <>
-      <section className="creator-kpi-row" aria-label="My repair summary">
-        <MetricCard label="My repairs" value={String(customerItems.length)} helper="Total repair records" />
-        <MetricCard label="Awaiting my approval" value={String(awaitingMyApproval)} helper="Estimates to review" />
-        <MetricCard label="Completed" value={String(completedRepairs)} helper="Delivered to me" />
-        <MetricCard label="Paid to date" value={currencyFormatter.format(totalPaid)} helper="Across my invoices" />
+      <section className="creator-kpi-row" aria-label={viewingAll ? 'All customers repair summary' : 'My repair summary'}>
+        <MetricCard label={viewingAll ? 'All repairs' : 'My repairs'} value={String(customerItems.length)} helper="Total repair records" />
+        <MetricCard label="Awaiting approval" value={String(awaitingMyApproval)} helper="Estimates to review" />
+        <MetricCard label="Completed" value={String(completedRepairs)} helper={viewingAll ? 'Delivered' : 'Delivered to me'} />
+        <MetricCard label="Paid to date" value={currencyFormatter.format(totalPaid)} helper={viewingAll ? 'Across all invoices' : 'Across my invoices'} />
       </section>
       <CreatorRecordBrowser
-        title="My repair records"
+        title={viewingAll ? 'All repair records' : 'My repair records'}
         records={customerItems}
         selected={selected}
         setSelectedId={setSelectedId}
@@ -2304,58 +2648,27 @@ function InventoryReport({
   );
 }
 
-function InventoryView({ state, adjustInventory, addInventoryPart, reset, canManage, canReset, pushToast }: DeskActions & { canManage: boolean; canReset: boolean; pushToast: (message: ReactNode, tone?: ToastTone) => void }) {
-  const [part, setPart] = useState<InventoryPart>(blankPart);
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    addInventoryPart({ ...part, sku: part.sku.toUpperCase(), compatibleWith: [part.compatibleWith[0] ?? 'Laptop'] }, 'System');
-    pushToast(`Saved part ${part.sku.toUpperCase() || part.name}.`);
-    setPart(blankPart);
-  };
-
-  const confirmReset = () => {
-    if (!window.confirm('Reset all demo data? This permanently wipes every local work item, invoice, and inventory change.')) {
-      return;
-    }
-
-    reset();
-    pushToast('Demo data reset.');
-  };
-
-  return (
-    <section className="creator-panel">
-      <div className="creator-panel-header"><div><p className="eyebrow">Inventory application view</p><h2>Spare parts</h2></div></div>
-      <CreatorSplit>
-        <CreatorFormCard title="Part form" eyebrow="Inventory">
-          {canManage ? (
-            <form className="creator-form" onSubmit={submit}>
-              <label>SKU<input required value={part.sku} onChange={(event) => setPart({ ...part, sku: event.target.value })} placeholder="BAT-MBP-2024" /></label>
-              <label>Name<input required value={part.name} onChange={(event) => setPart({ ...part, name: event.target.value })} placeholder="MacBook Battery" /></label>
-              <div className="form-row"><label>Device<select value={part.compatibleWith[0]} onChange={(event) => setPart({ ...part, compatibleWith: [event.target.value as DeviceType] })}>{deviceTypes.map((type) => <option key={type}>{type}</option>)}</select></label><label>Quantity<input type="number" value={part.quantity} onChange={(event) => setPart({ ...part, quantity: Number(event.target.value) })} /></label></div>
-              <div className="form-row"><label>Reorder at<input type="number" value={part.reorderLevel} onChange={(event) => setPart({ ...part, reorderLevel: Number(event.target.value) })} /></label><label>Cost<input type="number" value={part.unitCost} onChange={(event) => setPart({ ...part, unitCost: Number(event.target.value) })} /></label></div>
-              <div className="card-actions"><button className="primary-button" type="submit">Add / update part</button>{canReset && <button className="secondary-dark-button" type="button" onClick={confirmReset}>Reset demo data</button>}</div>
-            </form>
-          ) : <p className="muted">Technicians can view and consume parts. Agents/admins manage part records.</p>}
-        </CreatorFormCard>
-        <div className="creator-list-panel">
-          <ListHeader title="Inventory report" count={state.inventoryParts.length} />
-          {state.inventoryParts.map((inventoryPart) => {
-            const lowStock = inventoryPart.quantity <= inventoryPart.reorderLevel;
-            return (
-              <article className="record-row inventory-record" key={inventoryPart.sku}>
-                <div><strong>{inventoryPart.name}</strong><span>{inventoryPart.sku} · {inventoryPart.compatibleWith.join(', ')}</span></div>
-                <div className="inventory-meta"><span className={lowStock ? 'stock-low' : 'stock-ok'}>{inventoryPart.quantity} in stock</span><small>Reorder at {inventoryPart.reorderLevel} · Cost {currencyFormatter.format(inventoryPart.unitCost)}</small></div>
-                <div className="stepper">
-                  <button type="button" aria-label={`Decrease ${inventoryPart.name} quantity`} onClick={() => adjustInventory(inventoryPart.sku, -1)}><Minus aria-hidden="true" size={16} /></button>
-                  <button type="button" aria-label={`Increase ${inventoryPart.name} quantity`} onClick={() => adjustInventory(inventoryPart.sku, 1)}><Plus aria-hidden="true" size={16} /></button>
-                </div>
-              </article>
-            );
-          })}
+function InventoryView({ state, adjustInventory }: { state: DeskActions['state']; adjustInventory: DeskActions['adjustInventory'] }) {
+  const columns: DataGridColumn<InventoryPart & { id: string }>[] = [
+    { key: 'name', label: 'Name', render: (part) => <strong>{part.name}</strong>, sortValue: (part) => part.name, searchValue: (part) => part.name },
+    { key: 'sku', label: 'SKU', render: (part) => part.sku, sortValue: (part) => part.sku, searchValue: (part) => part.sku },
+    { key: 'device', label: 'Device', render: (part) => part.compatibleWith.join(', '), searchValue: (part) => part.compatibleWith.join(', ') },
+    { key: 'stock', label: 'Stock', render: (part) => <span className={part.quantity <= part.reorderLevel ? 'stock-low' : 'stock-ok'}>{part.quantity} in stock</span>, sortValue: (part) => part.quantity },
+    { key: 'reorder', label: 'Reorder at', render: (part) => part.reorderLevel, sortValue: (part) => part.reorderLevel },
+    { key: 'cost', label: 'Cost', render: (part) => currencyFormatter.format(part.unitCost), sortValue: (part) => part.unitCost },
+    {
+      key: 'adjust',
+      label: 'Adjust',
+      render: (part) => (
+        <div className="stepper" onClick={(event) => event.stopPropagation()}>
+          <button type="button" aria-label={`Decrease ${part.name} quantity`} onClick={() => adjustInventory(part.sku, -1)}><Minus aria-hidden="true" size={16} /></button>
+          <button type="button" aria-label={`Increase ${part.name} quantity`} onClick={() => adjustInventory(part.sku, 1)}><Plus aria-hidden="true" size={16} /></button>
         </div>
-      </CreatorSplit>
-    </section>
-  );
+      ),
+    },
+  ];
+
+  return <DataGrid title="Spare parts" columns={columns} rows={state.inventoryParts.map((part) => ({ ...part, id: part.sku }))} />;
 }
 
 function RecordPaymentModal({
@@ -2412,14 +2725,6 @@ function InvoiceList({
 }) {
   const [payingId, setPayingId] = useState<string | null>(null);
   const payingInvoice = payingId ? invoices.find((invoice) => invoice.id === payingId) : undefined;
-
-  const exportCsv = () => {
-    if (isApiPersistenceEnabled) {
-      exportApi.invoicesCsv().catch((error: unknown) => pushToast(error instanceof Error ? error.message : 'Export failed.', 'error'));
-      return;
-    }
-    exportInvoicesCsvLocally(invoices);
-  };
 
   const voidInvoice = (invoice: Invoice) => {
     if (!window.confirm(`Void invoice ${invoice.id}? This cannot be undone.`)) {
@@ -2490,7 +2795,6 @@ function InvoiceList({
         onBulkDelete={bulkDeleteInvoices}
         bulkEditFields={invoiceBulkEditFields}
         onBulkEditApply={bulkEditInvoices}
-        toolbar={<button type="button" className="secondary-dark-button icon-button" onClick={exportCsv}><Download aria-hidden="true" size={16} /><span>Export CSV</span></button>}
       />
       {payingInvoice && <RecordPaymentModal invoice={payingInvoice} recordPayment={recordPayment} onClose={() => setPayingId(null)} />}
     </>
@@ -2618,28 +2922,41 @@ function ReportBuilder({
 }) {
   const [entity, setEntity] = useState<ReportEntity>('workItems');
   const [columns, setColumns] = useState<string[]>(reportColumnOptions.workItems.slice(0, 4));
-  const [filterField, setFilterField] = useState('');
-  const [filterValue, setFilterValue] = useState('');
+  const [filters, setFilters] = useState<ReportFilter[]>([{ field: '', value: '' }]);
   const [reportName, setReportName] = useState('');
+  const [showSave, setShowSave] = useState(false);
 
   const changeEntity = (nextEntity: ReportEntity) => {
     setEntity(nextEntity);
     setColumns(reportColumnOptions[nextEntity].slice(0, 4));
-    setFilterField('');
-    setFilterValue('');
+    setFilters([{ field: '', value: '' }]);
   };
 
   const toggleColumn = (column: string) => {
     setColumns((current) => (current.includes(column) ? current.filter((value) => value !== column) : [...current, column]));
   };
 
-  const rows = useMemo(() => buildReportRows(state, entity, columns, filterField, filterValue), [state, entity, columns, filterField, filterValue]);
+  const updateFilter = (index: number, patch: Partial<ReportFilter>) => {
+    setFilters((current) => current.map((filter, position) => (position === index ? { ...filter, ...patch } : filter)));
+  };
+  const addFilter = () => setFilters((current) => [...current, { field: '', value: '' }]);
+  const removeFilter = (index: number) => setFilters((current) => current.filter((_, position) => position !== index));
+
+  const activeFilters = useMemo(() => filters.filter((filter) => filter.field && filter.value.trim()), [filters]);
+  const rows = useMemo(() => buildReportRows(state, entity, columns, activeFilters), [state, entity, columns, activeFilters]);
+  const gridRows = useMemo(() => rows.map((row, index) => ({ ...row, id: String(index) })), [rows]);
+  const gridColumns: DataGridColumn<Record<string, string> & { id: string }>[] = columns.map((column) => ({
+    key: column,
+    label: column,
+    render: (row) => row[column] || '—',
+    sortValue: (row) => row[column],
+    searchValue: (row) => row[column],
+  }));
 
   const runSavedReport = (report: SavedReport) => {
     setEntity(report.entity);
     setColumns(report.columns);
-    setFilterField(report.filterField);
-    setFilterValue(report.filterValue);
+    setFilters(report.filters.length ? report.filters : [{ field: '', value: '' }]);
   };
 
   const saveReport = () => {
@@ -2648,18 +2965,22 @@ function ReportBuilder({
       return;
     }
 
-    createSavedReport({ name: reportName, entity, columns, filterField, filterValue });
+    createSavedReport({ name: reportName, entity, columns, filters: activeFilters });
     pushToast(`Saved report "${reportName}".`);
     setReportName('');
+    setShowSave(false);
   };
 
   return (
-    <CreatorSplit>
-      <CreatorFormCard title="Report builder" eyebrow="Build-your-own report">
-        <div className="creator-form">
-          <label>Entity<select value={entity} onChange={(event) => changeEntity(event.target.value as ReportEntity)}>
-            {(Object.keys(reportEntityLabels) as ReportEntity[]).map((option) => <option key={option} value={option}>{reportEntityLabels[option]}</option>)}
-          </select></label>
+    <div className="report-builder">
+      <section className="creator-panel report-builder-controls">
+        <div className="creator-panel-header"><div><p className="eyebrow">Build your own report</p><h2>Report builder</h2></div></div>
+        <div className="view-canvas report-builder-fields">
+          <label>Entity
+            <select value={entity} onChange={(event) => changeEntity(event.target.value as ReportEntity)}>
+              {(Object.keys(reportEntityLabels) as ReportEntity[]).map((option) => <option key={option} value={option}>{reportEntityLabels[option]}</option>)}
+            </select>
+          </label>
           <label>Columns
             <span className="checkbox-grid">
               {reportColumnOptions[entity].map((column) => (
@@ -2667,45 +2988,51 @@ function ReportBuilder({
               ))}
             </span>
           </label>
-          <div className="form-row">
-            <label>Filter field<select value={filterField} onChange={(event) => setFilterField(event.target.value)}>
-              <option value="">No filter</option>
-              {reportColumnOptions[entity].map((column) => <option key={column} value={column}>{column}</option>)}
-            </select></label>
-            <label>Contains<input value={filterValue} onChange={(event) => setFilterValue(event.target.value)} placeholder="Filter value" disabled={!filterField} /></label>
-          </div>
-          <div className="form-row">
-            <label>Report name<input value={reportName} onChange={(event) => setReportName(event.target.value)} placeholder="e.g. Overdue invoices" /></label>
-          </div>
-          <div className="card-actions">
-            <button type="button" className="primary-button" onClick={saveReport}>Save report</button>
-            <button type="button" className="secondary-dark-button icon-button" onClick={() => downloadRowsAsCsv(`${entity}-report.csv`, columns, rows)}><Download aria-hidden="true" size={16} /><span>Export CSV</span></button>
-          </div>
-        </div>
-      </CreatorFormCard>
-      <div className="creator-list-panel">
-        <ListHeader title={`Preview · ${reportEntityLabels[entity]}`} count={rows.length} />
-        {rows.length ? rows.slice(0, 25).map((row, index) => (
-          <div className="record-row" key={index}>
-            <div><strong>{row[columns[0]] ?? ''}</strong><span>{columns.slice(1).map((column) => row[column]).filter(Boolean).join(' · ')}</span></div>
-          </div>
-        )) : <EmptyState title="No matching records" body="Adjust the filter or pick different columns." />}
-        {savedReports.length > 0 && (
-          <>
-            <ListHeader title="Saved reports" count={savedReports.length} />
-            {savedReports.map((report) => (
-              <div className="record-row" key={report.id}>
-                <div><strong>{report.name}</strong><span>{reportEntityLabels[report.entity]} · {report.columns.length} columns</span></div>
-                <div className="card-actions">
-                  <button type="button" className="secondary-dark-button" onClick={() => runSavedReport(report)}>Run</button>
-                  <button type="button" className="danger-button" onClick={() => deleteSavedReport(report.id)}>Delete</button>
-                </div>
+          <div className="report-filter-rows">
+            <p className="eyebrow">Filters</p>
+            {filters.map((filter, index) => (
+              <div className="report-filter-row" key={index}>
+                <select value={filter.field} onChange={(event) => updateFilter(index, { field: event.target.value })}>
+                  <option value="">No filter</option>
+                  {reportColumnOptions[entity].map((column) => <option key={column} value={column}>{column}</option>)}
+                </select>
+                <input value={filter.value} onChange={(event) => updateFilter(index, { value: event.target.value })} placeholder="Contains…" disabled={!filter.field} />
+                <button type="button" className="icon-toolbar-button is-danger" aria-label="Remove filter" onClick={() => removeFilter(index)} disabled={filters.length === 1}>
+                  <X aria-hidden="true" size={14} />
+                </button>
               </div>
             ))}
-          </>
-        )}
-      </div>
-    </CreatorSplit>
+            <button type="button" className="secondary-button" onClick={addFilter}>+ Add filter</button>
+          </div>
+          <div className="card-actions">
+            <button type="button" className="secondary-dark-button" onClick={() => setShowSave((value) => !value)}>{showSave ? 'Cancel save' : 'Save this report'}</button>
+            {showSave && (
+              <>
+                <input value={reportName} onChange={(event) => setReportName(event.target.value)} placeholder="Report name, e.g. Overdue invoices" />
+                <button type="button" className="primary-button" onClick={saveReport}>Save</button>
+              </>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <DataGrid title={`${reportEntityLabels[entity]} export`} columns={gridColumns} rows={gridRows} emptyTitle="No matching records" emptyBody="Adjust the filters or pick different columns." />
+
+      {savedReports.length > 0 && (
+        <div className="creator-list-panel">
+          <ListHeader title="Saved reports" count={savedReports.length} />
+          {savedReports.map((report) => (
+            <div className="record-row" key={report.id}>
+              <div><strong>{report.name}</strong><span>{reportEntityLabels[report.entity]} · {report.columns.length} columns</span></div>
+              <div className="card-actions">
+                <button type="button" className="secondary-dark-button" onClick={() => runSavedReport(report)}>Run</button>
+                <button type="button" className="danger-button" onClick={() => deleteSavedReport(report.id)}>Delete</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -2728,11 +3055,12 @@ function getEntityRows(state: DeskActions['state'], entity: ReportEntity): Array
   return rows as Array<Record<string, unknown>>;
 }
 
-function buildReportRows(state: DeskActions['state'], entity: ReportEntity, columns: string[], filterField: string, filterValue: string): Array<Record<string, string>> {
+function buildReportRows(state: DeskActions['state'], entity: ReportEntity, columns: string[], filters: ReportFilter[]): Array<Record<string, string>> {
   let rows = getEntityRows(state, entity);
 
-  if (filterField && filterValue.trim()) {
-    rows = rows.filter((row) => String(row[filterField] ?? '').toLowerCase().includes(filterValue.trim().toLowerCase()));
+  for (const filter of filters) {
+    const needle = filter.value.trim().toLowerCase();
+    rows = rows.filter((row) => String(row[filter.field] ?? '').toLowerCase().includes(needle));
   }
 
   return rows.map((row) => {
@@ -2755,41 +3083,6 @@ function downloadRowsAsCsv(filename: string, headers: string[], rows: Array<Reco
   link.download = filename;
   link.click();
   URL.revokeObjectURL(url);
-}
-
-function exportCustomersCsvLocally(state: DeskActions['state']) {
-  downloadRowsAsCsv(
-    'customers.csv',
-    ['Customer ID', 'Name', 'Phone', 'Email', 'Repairs'],
-    state.customers.map((customer) => ({
-      'Customer ID': customer.id,
-      Name: customer.name,
-      Phone: customer.phone,
-      Email: customer.email,
-      Repairs: String(state.workItems.filter((item) => item.customerId === customer.id).length),
-    })),
-  );
-}
-
-function exportInvoicesCsvLocally(invoices: Invoice[]) {
-  downloadRowsAsCsv(
-    'invoices.csv',
-    ['Invoice ID', 'Work Item', 'Customer', 'Labor', 'Parts', 'Diagnostic Fee', 'Total', 'Status', 'Issued At', 'Paid At', 'Payment Method', 'Payment Reference'],
-    invoices.map((invoice) => ({
-      'Invoice ID': invoice.id,
-      'Work Item': invoice.workItemId,
-      Customer: invoice.customerName,
-      Labor: String(invoice.laborAmount),
-      Parts: String(invoice.partsAmount),
-      'Diagnostic Fee': String(invoice.diagnosticFee),
-      Total: String(invoice.amount),
-      Status: invoice.status,
-      'Issued At': invoice.issuedAt,
-      'Paid At': invoice.paidAt,
-      'Payment Method': invoice.paymentMethod,
-      'Payment Reference': invoice.paymentReference,
-    })),
-  );
 }
 
 function ModuleFrame({
@@ -2816,10 +3109,6 @@ function ModuleFrame({
       <div className={showHeader ? 'view-canvas' : 'view-canvas view-canvas-full'}>{children}</div>
     </section>
   );
-}
-
-function CreatorSplit({ children }: { children: ReactNode }) {
-  return <div className="creator-split">{children}</div>;
 }
 
 function CreatorFormCard({ title, eyebrow, children }: { title: string; eyebrow: string; children: ReactNode }) {
@@ -2950,6 +3239,8 @@ interface DataGridColumn<T> {
   render: (row: T) => ReactNode;
   sortValue?: (row: T) => string | number;
   searchValue?: (row: T) => string;
+  csvValue?: (row: T) => string;
+  defaultHidden?: boolean;
 }
 
 interface BulkEditField<T> {
@@ -3017,13 +3308,16 @@ function BulkEditModal<T>({
 
 function auditColumns<T extends { id: string; createdAt: string; createdBy: string; updatedAt: string; updatedBy: string }>(): DataGridColumn<T>[] {
   return [
-    { key: 'id', label: 'ID', render: (row) => <span className="record-meta">{row.id}</span>, sortValue: (row) => row.id, searchValue: (row) => row.id },
-    { key: 'createdAt', label: 'Added Time', render: (row) => row.createdAt, sortValue: (row) => row.createdAt },
-    { key: 'createdBy', label: 'Added User', render: (row) => row.createdBy, sortValue: (row) => row.createdBy },
-    { key: 'updatedAt', label: 'Modified Time', render: (row) => row.updatedAt, sortValue: (row) => row.updatedAt },
-    { key: 'updatedBy', label: 'Modified User', render: (row) => row.updatedBy, sortValue: (row) => row.updatedBy },
+    { key: 'id', label: 'ID', render: (row) => <span className="record-meta">{row.id}</span>, sortValue: (row) => row.id, searchValue: (row) => row.id, defaultHidden: true },
+    { key: 'createdAt', label: 'Added Time', render: (row) => row.createdAt, sortValue: (row) => row.createdAt, defaultHidden: true },
+    { key: 'createdBy', label: 'Added User', render: (row) => row.createdBy, sortValue: (row) => row.createdBy, defaultHidden: true },
+    { key: 'updatedAt', label: 'Modified Time', render: (row) => row.updatedAt, sortValue: (row) => row.updatedAt, defaultHidden: true },
+    { key: 'updatedBy', label: 'Modified User', render: (row) => row.updatedBy, sortValue: (row) => row.updatedBy, defaultHidden: true },
   ];
 }
+
+const DATA_GRID_PAGE_SIZE = 20;
+const MY_JOBS_PAGE_SIZE = 9;
 
 function DataGrid<T extends { id: string }>({
   title,
@@ -3041,6 +3335,7 @@ function DataGrid<T extends { id: string }>({
   bulkDeleteLabel = (count) => `Delete ${count} selected`,
   bulkEditFields,
   onBulkEditApply,
+  hideExport = false,
 }: {
   title: string;
   columns: DataGridColumn<T>[];
@@ -3057,6 +3352,7 @@ function DataGrid<T extends { id: string }>({
   bulkDeleteLabel?: (count: number) => string;
   bulkEditFields?: BulkEditField<T>[];
   onBulkEditApply?: (rows: T[], patch: Partial<T>) => void;
+  hideExport?: boolean;
 }) {
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [showBulkEdit, setShowBulkEdit] = useState(false);
@@ -3065,7 +3361,24 @@ function DataGrid<T extends { id: string }>({
   const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [columnsOpen, setColumnsOpen] = useState(false);
+  const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(() => new Set(columns.filter((column) => column.defaultHidden).map((column) => column.key)));
+  const [page, setPage] = useState(0);
   const searchableColumns = useMemo(() => columns.filter((column) => column.searchValue), [columns]);
+  const visibleColumns = useMemo(() => columns.filter((column) => !hiddenKeys.has(column.key)), [columns, hiddenKeys]);
+  const exportableColumns = useMemo(() => columns.filter((column) => column.csvValue ?? column.sortValue ?? column.searchValue), [columns]);
+
+  const toggleColumnVisibility = (key: string) => {
+    setHiddenKeys((current) => {
+      const next = new Set(current);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
 
   const filteredRows = useMemo(() => {
     if (!query.trim() || searchableColumns.length === 0) {
@@ -3089,6 +3402,22 @@ function DataGrid<T extends { id: string }>({
     return sort.dir === 'desc' ? sorted.reverse() : sorted;
   }, [filteredRows, sort, columns]);
 
+  const pageCount = Math.max(1, Math.ceil(sortedRows.length / DATA_GRID_PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount - 1);
+  const pageRows = useMemo(
+    () => sortedRows.slice(currentPage * DATA_GRID_PAGE_SIZE, currentPage * DATA_GRID_PAGE_SIZE + DATA_GRID_PAGE_SIZE),
+    [sortedRows, currentPage],
+  );
+
+  const pageResetKey = `${query}|${sort?.key ?? ''}|${sort?.dir ?? ''}`;
+  const [prevPageResetKey, setPrevPageResetKey] = useState(pageResetKey);
+  if (pageResetKey !== prevPageResetKey) {
+    setPrevPageResetKey(pageResetKey);
+    if (page !== 0) {
+      setPage(0);
+    }
+  }
+
   const toggleSort = (key: string) => {
     setSort((current) => {
       if (!current || current.key !== key) {
@@ -3098,8 +3427,17 @@ function DataGrid<T extends { id: string }>({
     });
   };
 
-  const allChecked = sortedRows.length > 0 && checked.size === sortedRows.length;
-  const toggleAll = () => setChecked(allChecked ? new Set() : new Set(sortedRows.map((row) => row.id)));
+  const allChecked = pageRows.length > 0 && pageRows.every((row) => checked.has(row.id));
+  const toggleAll = () => setChecked((current) => {
+    if (allChecked) {
+      const next = new Set(current);
+      pageRows.forEach((row) => next.delete(row.id));
+      return next;
+    }
+    const next = new Set(current);
+    pageRows.forEach((row) => next.add(row.id));
+    return next;
+  });
   const toggleOne = (id: string) => setChecked((current) => {
     const next = new Set(current);
     if (next.has(id)) {
@@ -3109,6 +3447,19 @@ function DataGrid<T extends { id: string }>({
     }
     return next;
   });
+
+  const exportCsv = () => {
+    const headers = exportableColumns.map((column) => column.label);
+    const csvRows = sortedRows.map((row) => {
+      const record: Record<string, string> = {};
+      exportableColumns.forEach((column) => {
+        const getter = column.csvValue ?? column.sortValue ?? column.searchValue;
+        record[column.label] = getter ? String(getter(row)) : '';
+      });
+      return record;
+    });
+    downloadRowsAsCsv(`${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'report'}.csv`, headers, csvRows);
+  };
 
   return (
     <div className="creator-list-panel data-grid-panel">
@@ -3125,6 +3476,20 @@ function DataGrid<T extends { id: string }>({
               onClick={() => setSearchOpen((open) => !open)}
             >
               <Search aria-hidden="true" size={15} />
+            </button>
+          )}
+          <button
+            type="button"
+            className={columnsOpen ? 'icon-toolbar-button is-active' : 'icon-toolbar-button'}
+            aria-label={columnsOpen ? 'Close column settings' : 'Show or hide columns'}
+            aria-pressed={columnsOpen}
+            onClick={() => setColumnsOpen((open) => !open)}
+          >
+            <Columns3 aria-hidden="true" size={15} />
+          </button>
+          {!hideExport && exportableColumns.length > 0 && (
+            <button type="button" className="icon-toolbar-button" aria-label={`Export ${title} as CSV`} onClick={exportCsv}>
+              <Download aria-hidden="true" size={15} />
             </button>
           )}
           {toolbar}
@@ -3145,6 +3510,18 @@ function DataGrid<T extends { id: string }>({
             placeholder={`Search ${title.toLowerCase()}`}
             aria-label={`Search ${title}`}
           />
+        </div>
+      )}
+      {columnsOpen && (
+        <div className="data-grid-filter data-grid-columns-picker">
+          <span className="checkbox-grid">
+            {columns.map((column) => (
+              <label className="inline-check" key={column.key}>
+                <input type="checkbox" checked={!hiddenKeys.has(column.key)} onChange={() => toggleColumnVisibility(column.key)} />
+                {column.label}
+              </label>
+            ))}
+          </span>
         </div>
       )}
       {filter}
@@ -3188,43 +3565,54 @@ function DataGrid<T extends { id: string }>({
       )}
       {rows.length ? (
         sortedRows.length ? (
-          <div className="data-grid">
-            <table className="data-grid-table">
-              <thead>
-                <tr>
-                  {hasBulkActions && (
-                    <th className="data-grid-check-col"><input type="checkbox" aria-label="Select all rows" checked={allChecked} onChange={toggleAll} /></th>
-                  )}
-                  {columns.map((column) => (
-                    <th key={column.key}>
-                      {column.label}
-                      {column.sortValue && (
-                        <button type="button" className="data-grid-sort" aria-label={`Sort by ${column.label}`} onClick={() => toggleSort(column.key)}>
-                          <ChevronDown aria-hidden="true" size={13} />
-                        </button>
-                      )}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {sortedRows.map((row) => (
-                  <tr
-                    key={row.id}
-                    className={[onRowClick && 'is-clickable', selectedId === row.id && 'is-active'].filter(Boolean).join(' ')}
-                    onClick={() => onRowClick?.(row)}
-                  >
+          <>
+            <div className="data-grid">
+              <table className="data-grid-table">
+                <thead>
+                  <tr>
                     {hasBulkActions && (
-                      <td className="data-grid-check-col" onClick={(event) => event.stopPropagation()}>
-                        <input type="checkbox" aria-label={`Select row ${row.id}`} checked={checked.has(row.id)} onChange={() => toggleOne(row.id)} />
-                      </td>
+                      <th className="data-grid-check-col"><input className="data-grid-checkbox" type="checkbox" aria-label="Select all rows on this page" checked={allChecked} onChange={toggleAll} /></th>
                     )}
-                    {columns.map((column) => <td key={column.key}>{column.render(row)}</td>)}
+                    {visibleColumns.map((column) => (
+                      <th key={column.key}>
+                        {column.label}
+                        {column.sortValue && (
+                          <button type="button" className="data-grid-sort" aria-label={`Sort by ${column.label}`} onClick={() => toggleSort(column.key)}>
+                            <ChevronDown aria-hidden="true" size={13} />
+                          </button>
+                        )}
+                      </th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {pageRows.map((row) => (
+                    <tr
+                      key={row.id}
+                      className={[onRowClick && 'is-clickable', selectedId === row.id && 'is-active'].filter(Boolean).join(' ')}
+                      onClick={() => onRowClick?.(row)}
+                    >
+                      {hasBulkActions && (
+                        <td className="data-grid-check-col" onClick={(event) => event.stopPropagation()}>
+                          <input className="data-grid-checkbox" type="checkbox" aria-label={`Select row ${row.id}`} checked={checked.has(row.id)} onChange={() => toggleOne(row.id)} />
+                        </td>
+                      )}
+                      {visibleColumns.map((column) => <td key={column.key}>{column.render(row)}</td>)}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {pageCount > 1 && (
+              <div className="data-grid-pagination">
+                <span>Page {currentPage + 1} of {pageCount} · {sortedRows.length} records</span>
+                <div className="card-actions">
+                  <button type="button" className="secondary-button" onClick={() => setPage((value) => Math.max(0, value - 1))} disabled={currentPage === 0}>Previous</button>
+                  <button type="button" className="secondary-button" onClick={() => setPage((value) => Math.min(pageCount - 1, value + 1))} disabled={currentPage >= pageCount - 1}>Next</button>
+                </div>
+              </div>
+            )}
+          </>
         ) : <EmptyState title="No matches" body="Try a different search term." />
       ) : <EmptyState title={emptyTitle} body={emptyBody} />}
     </div>

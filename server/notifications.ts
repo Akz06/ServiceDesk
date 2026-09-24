@@ -54,30 +54,30 @@ export function mapNotification(row: NotificationRow): Notification {
   };
 }
 
-export async function listNotifications(): Promise<Notification[]> {
-  const result = await query<NotificationRow>('SELECT * FROM notifications ORDER BY id DESC');
+export async function listNotifications(organizationId: string): Promise<Notification[]> {
+  const result = await query<NotificationRow>('SELECT * FROM notifications WHERE organization_id = $1 ORDER BY id DESC', [organizationId]);
   return result.rows.map(mapNotification);
 }
 
-export async function markNotificationsRead(ids?: string[]): Promise<void> {
+export async function markNotificationsRead(organizationId: string, ids?: string[]): Promise<void> {
   if (ids && ids.length > 0) {
-    await query('UPDATE notifications SET read = true WHERE id = ANY($1)', [ids]);
+    await query('UPDATE notifications SET read = true WHERE id = ANY($1) AND organization_id = $2', [ids, organizationId]);
     return;
   }
-  await query('UPDATE notifications SET read = true WHERE read = false');
+  await query('UPDATE notifications SET read = true WHERE read = false AND organization_id = $1', [organizationId]);
 }
 
 let notificationSequence = 0;
 
-export async function sendNotification(request: NotificationRequest, stamp: string): Promise<Notification> {
+export async function sendNotification(request: NotificationRequest, organizationId: string, stamp: string): Promise<Notification> {
   const outcome = await activeProvider.send(request);
   notificationSequence += 1;
   const id = `NOTE-${Date.now()}-${notificationSequence}`;
 
   await query(
-    `INSERT INTO notifications (id, work_item_id, customer_id, channel, recipient, message, status, provider, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-    [id, request.workItemId, request.customerId, request.channel, request.recipient, request.message, outcome.status, outcome.provider, stamp],
+    `INSERT INTO notifications (id, organization_id, work_item_id, customer_id, channel, recipient, message, status, provider, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    [id, organizationId, request.workItemId, request.customerId, request.channel, request.recipient, request.message, outcome.status, outcome.provider, stamp],
   );
 
   return {

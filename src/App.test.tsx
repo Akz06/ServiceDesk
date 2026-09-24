@@ -32,7 +32,7 @@ describe('App workflow', () => {
     expect(screen.getByRole('button', { name: /^logout$/i })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /my jobs/i }));
-    expect(screen.getByRole('heading', { name: /^my jobs$/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /^assigned jobs$/i })).toBeInTheDocument();
   });
 
   it('logs into agent module and creates a work item', async () => {

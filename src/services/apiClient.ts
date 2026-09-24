@@ -1,12 +1,15 @@
 import type {
   AuthResponse,
   AuthUser,
+  BulkUserCreationResult,
+  BulkUserRow,
   Customer,
   InventoryPart,
   InvoiceDraft,
   InvoicePaymentDraft,
   InvoiceStatus,
   ManagedUser,
+  OrganizationSignupDraft,
   SavedReportDraft,
   ServiceDeskState,
   TechnicianDraft,
@@ -94,6 +97,7 @@ const requestState = (path: string, init?: RequestInit) => requestJson<ServiceDe
 
 export const authApi = {
   login: (email: string, password: string) => requestJson<AuthResponse>('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
+  signup: (draft: OrganizationSignupDraft) => requestJson<AuthResponse>('/api/organizations', { method: 'POST', body: JSON.stringify(draft) }),
   me: () => requestJson<{ user: AuthUser }>('/api/auth/me'),
   logout: () => requestJson<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
 };
@@ -103,6 +107,7 @@ export const userApi = {
   create: (draft: UserDraft) => requestJson<{ users: ManagedUser[] }>('/api/admin/users', { method: 'POST', body: JSON.stringify(draft) }),
   update: (id: string, draft: UserDraft) => requestJson<{ users: ManagedUser[] }>(`/api/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify(draft) }),
   remove: (id: string) => requestJson<{ users: ManagedUser[] }>(`/api/admin/users/${id}`, { method: 'DELETE' }),
+  bulkCreate: (rows: BulkUserRow[]) => requestJson<BulkUserCreationResult>('/api/admin/users/bulk', { method: 'POST', body: JSON.stringify({ rows }) }),
 };
 
 export const serviceDeskApi = {
@@ -120,6 +125,7 @@ export const serviceDeskApi = {
   adjustInventory: (sku: string, delta: number) => requestState(`/api/inventory/${sku}/adjust`, { method: 'PATCH', body: JSON.stringify({ delta }) }),
   addInventoryPart: (part: InventoryPart) => requestState(`/api/inventory/${part.sku}`, { method: 'PUT', body: JSON.stringify(part) }),
   deleteInventoryPart: (sku: string) => requestState(`/api/inventory/${sku}`, { method: 'DELETE' }),
+  addCustomer: (draft: Pick<Customer, 'name' | 'phone' | 'email'>) => requestState('/api/customers', { method: 'POST', body: JSON.stringify(draft) }),
   updateCustomer: (id: string, patch: Pick<Customer, 'name' | 'phone' | 'email'>) => requestState(`/api/customers/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteCustomer: (id: string) => requestState(`/api/customers/${id}`, { method: 'DELETE' }),
   addTechnician: (draft: TechnicianDraft) => requestState('/api/technicians', { method: 'POST', body: JSON.stringify(draft) }),

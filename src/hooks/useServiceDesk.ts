@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Customer, InventoryPart, InvoiceDraft, InvoicePaymentDraft, InvoiceStatus, SavedReportDraft, ServiceDeskState, TechnicianDraft, UserRole, WorkItem, WorkItemDraft } from '../types';
 import { isApiPersistenceEnabled, serviceDeskApi } from '../services/apiClient';
 import {
+  addCustomerRecord,
   addInventoryPartRecord,
   addTechnicianRecord,
   adjustInventoryRecord,
@@ -171,6 +172,13 @@ export function useServiceDesk() {
         return runApiMutation(() => serviceDeskApi.deleteInventoryPart(sku));
       }
       setState((current) => deleteInventoryPartRecord(current, sku));
+      return Promise.resolve();
+    },
+    addCustomer: (draft: Pick<Customer, 'name' | 'phone' | 'email'>, actor: string) => {
+      if (isApiPersistenceEnabled) {
+        return runApiMutation(() => serviceDeskApi.addCustomer(draft));
+      }
+      setState((current) => addCustomerRecord(current, draft, actor));
       return Promise.resolve();
     },
     updateCustomer: (id: string, patch: Pick<Customer, 'name' | 'phone' | 'email'>, actor: string) => {

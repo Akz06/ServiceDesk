@@ -119,8 +119,7 @@ interface SavedReportRow {
   name: string;
   entity: SavedReport['entity'];
   columns: string[];
-  filter_field: string;
-  filter_value: string;
+  filters: SavedReport['filters'];
   created_at: string;
 }
 
@@ -207,8 +206,7 @@ function mapSavedReport(row: SavedReportRow): SavedReport {
     name: row.name,
     entity: row.entity,
     columns: row.columns,
-    filterField: row.filter_field,
-    filterValue: row.filter_value,
+    filters: row.filters,
     createdAt: row.created_at,
   };
 }
@@ -227,16 +225,23 @@ function validateWorkItemDraft(draft: WorkItemDraft) {
   }
 }
 
-export async function getServiceDeskState(): Promise<ServiceDeskState> {
+export async function getServiceDeskState(organizationId: string): Promise<ServiceDeskState> {
   const [customersResult, techniciansResult, workItemsResult, updatesResult, inventoryResult, invoicesResult, notifications, savedReportsResult] = await Promise.all([
-    query<CustomerRow>('SELECT id, name, phone, email, created_at, created_by, updated_at, updated_by FROM customers ORDER BY created_at DESC, id DESC'),
-    query<TechnicianRow>('SELECT id, name, email, specialties, active_jobs, created_at, created_by, updated_at, updated_by FROM technicians ORDER BY created_at ASC, id ASC'),
-    query<WorkItemRow>('SELECT * FROM work_items ORDER BY id DESC'),
-    query<UpdateRow>('SELECT id, work_item_id, actor, message, at FROM work_item_updates ORDER BY id ASC'),
-    query<InventoryPartRow>('SELECT * FROM inventory_parts ORDER BY sku ASC'),
-    query<InvoiceRow>('SELECT * FROM invoices ORDER BY id DESC'),
-    listNotifications(),
-    query<SavedReportRow>('SELECT * FROM saved_reports ORDER BY created_at DESC'),
+    query<CustomerRow>('SELECT id, name, phone, email, created_at, created_by, updated_at, updated_by FROM customers WHERE organization_id = $1 ORDER BY created_at DESC, id DESC', [organizationId]),
+    query<TechnicianRow>('SELECT id, name, email, specialties, active_jobs, created_at, created_by, updated_at, updated_by FROM technicians WHERE organization_id = $1 ORDER BY created_at ASC, id ASC', [organizationId]),
+    query<WorkItemRow>('SELECT * FROM work_items WHERE organization_id = $1 ORDER BY id DESC', [organizationId]),
+    query<UpdateRow>(
+      `SELECT wiu.id, wiu.work_item_id, wiu.actor, wiu.message, wiu.at
+       FROM work_item_updates wiu
+       JOIN work_items wi ON wi.id = wiu.work_item_id
+       WHERE wi.organization_id = $1
+       ORDER BY wiu.id ASC`,
+      [organizationId],
+    ),
+    query<InventoryPartRow>('SELECT * FROM inventory_parts WHERE organization_id = $1 ORDER BY sku ASC', [organizationId]),
+    query<InvoiceRow>('SELECT * FROM invoices WHERE organization_id = $1 ORDER BY id DESC', [organizationId]),
+    listNotifications(organizationId),
+    query<SavedReportRow>('SELECT * FROM saved_reports WHERE organization_id = $1 ORDER BY created_at DESC', [organizationId]),
   ]);
 
   const updatesByWorkItem = updatesResult.rows.reduce<Record<string, WorkItemUpdate[]>>((grouped, update) => {
@@ -286,13 +291,19 @@ export async function getServiceDeskState(): Promise<ServiceDeskState> {
   };
 }
 
-export async function replaceAllData(state: ServiceDeskState) {
+export async function replaceAllData(state: ServiceDeskState, organizationId: string) {
   await withTransaction(async (client) => {
-    await client.query('TRUNCATE invoices, work_item_updates, work_items, customers, inventory_parts, technicians RESTART IDENTITY CASCADE');
+    await client.query('DELETE FROM invoices WHERE organization_id = $1', [organizationId]);
+    await client.query('DELETE FROM work_item_updates WHERE work_item_id IN (SELECT id FROM work_items WHERE organization_id = $1)', [organizationId]);
+    await client.query('DELETE FROM work_items WHERE organization_id = $1', [organizationId]);
+    await client.query('DELETE FROM customers WHERE organization_id = $1', [organizationId]);
+    await client.query('DELETE FROM inventory_parts WHERE organization_id = $1', [organizationId]);
+    await client.query('DELETE FROM technicians WHERE organization_id = $1', [organizationId]);
 
     for (const customer of state.customers) {
-      await client.query('INSERT INTO customers (id, name, phone, email, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $5)', [
+      await client.query('INSERT INTO customers (id, organization_id, name, phone, email, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $6, $6)', [
         customer.id,
+        organizationId,
         customer.name,
         customer.phone,
         customer.email,
@@ -302,21 +313,22 @@ export async function replaceAllData(state: ServiceDeskState) {
 
     for (const technician of state.technicians) {
       await client.query(
-        'INSERT INTO technicians (id, name, email, specialties, active_jobs, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $6, $6)',
-        [technician.id, technician.name, technician.email, technician.specialties, technician.activeJobs, technician.createdBy],
+        'INSERT INTO technicians (id, organization_id, name, email, specialties, active_jobs, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $7)',
+        [technician.id, organizationId, technician.name, technician.email, technician.specialties, technician.activeJobs, technician.createdBy],
       );
     }
 
     for (const item of state.workItems) {
       await client.query(
         `INSERT INTO work_items (
-          id, customer_id, customer_name, customer_phone, customer_email, source, device_type, device_model,
+          id, organization_id, customer_id, customer_name, customer_phone, customer_email, source, device_type, device_model,
           serial_number, issue_summary, priority, status, assigned_technician_id, analysis, required_changes,
           estimated_price, labor_estimate, parts_estimate, diagnostic_fee, approved_by_customer, parts_required,
           created_at, created_by, updated_at, updated_by, promised_by
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)`,
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)`,
         [
           item.id,
+          organizationId,
           item.customerId,
           item.customerName,
           item.customerPhone,
@@ -358,20 +370,21 @@ export async function replaceAllData(state: ServiceDeskState) {
 
     for (const part of state.inventoryParts) {
       await client.query(
-        `INSERT INTO inventory_parts (sku, name, compatible_with, quantity, reorder_level, unit_cost, created_by, updated_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $7)`,
-        [part.sku, part.name, part.compatibleWith, part.quantity, part.reorderLevel, part.unitCost, part.createdBy],
+        `INSERT INTO inventory_parts (sku, organization_id, name, compatible_with, quantity, reorder_level, unit_cost, created_by, updated_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)`,
+        [part.sku, organizationId, part.name, part.compatibleWith, part.quantity, part.reorderLevel, part.unitCost, part.createdBy],
       );
     }
 
     for (const invoice of state.invoices) {
       await client.query(
         `INSERT INTO invoices (
-          id, work_item_id, customer_id, customer_name, amount, labor_amount, parts_amount, diagnostic_fee,
+          id, organization_id, work_item_id, customer_id, customer_name, amount, labor_amount, parts_amount, diagnostic_fee,
           status, issued_at, paid_at, payment_method, payment_reference, notes, created_by, updated_by
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15)`,
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16)`,
         [
           invoice.id,
+          organizationId,
           invoice.workItemId,
           invoice.customerId,
           invoice.customerName,
@@ -391,26 +404,33 @@ export async function replaceAllData(state: ServiceDeskState) {
     }
   });
 
-  return getServiceDeskState();
+  return getServiceDeskState(organizationId);
 }
 
 export async function seedInitialDataIfEmpty() {
-  const result = await query<{ count: string }>('SELECT COUNT(*)::text AS count FROM customers');
+  const result = await query<{ count: string }>("SELECT COUNT(*)::text AS count FROM customers WHERE organization_id = 'org-default'");
   if (Number(result.rows[0]?.count ?? 0) === 0) {
-    await replaceAllData(initialServiceDeskState);
+    await replaceAllData(initialServiceDeskState, 'org-default');
   }
 }
 
-export async function createWorkItem(draft: WorkItemDraft, actor: string): Promise<ServiceDeskState> {
+export async function createWorkItem(draft: WorkItemDraft, organizationId: string, actor: string): Promise<ServiceDeskState> {
   validateWorkItemDraft(draft);
-  const state = await getServiceDeskState();
+  const state = await getServiceDeskState(organizationId);
   const stamp = nowStamp();
   const customerEmail = draft.customerEmail.trim().toLowerCase();
   const existingCustomer = state.customers.find(
     (customer) => customer.phone === draft.customerPhone.trim() || customer.email.toLowerCase() === customerEmail,
   );
+  // ID sequences are generated against the GLOBAL id space (not org-scoped) — see the
+  // "Per-org pretty ID sequences" decision: every table's primary key is still a bare
+  // global TEXT column, so a per-org-only uniqueness scan would collide across orgs.
+  const [allCustomerIds, allWorkItemIds] = await Promise.all([
+    query<{ id: string }>('SELECT id FROM customers'),
+    query<{ id: string }>('SELECT id FROM work_items'),
+  ]);
   const customer: Customer = existingCustomer ?? {
-    id: nextNumericId('CUST', state.customers.map((item) => item.id), 2000),
+    id: nextNumericId('CUST', allCustomerIds.rows.map((row) => row.id), 2000),
     name: draft.customerName.trim(),
     phone: draft.customerPhone.trim(),
     email: customerEmail,
@@ -419,7 +439,7 @@ export async function createWorkItem(draft: WorkItemDraft, actor: string): Promi
     updatedAt: stamp,
     updatedBy: actor,
   };
-  const workItemId = nextNumericId('WI', state.workItems.map((item) => item.id), 1023);
+  const workItemId = nextNumericId('WI', allWorkItemIds.rows.map((row) => row.id), 1023);
   const item: WorkItem = {
     id: workItemId,
     customerId: customer.id,
@@ -455,8 +475,9 @@ export async function createWorkItem(draft: WorkItemDraft, actor: string): Promi
 
   await withTransaction(async (client) => {
     if (!existingCustomer) {
-      await client.query('INSERT INTO customers (id, name, phone, email, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $5)', [
+      await client.query('INSERT INTO customers (id, organization_id, name, phone, email, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $6, $6)', [
         customer.id,
+        organizationId,
         customer.name,
         customer.phone,
         customer.email,
@@ -466,13 +487,14 @@ export async function createWorkItem(draft: WorkItemDraft, actor: string): Promi
 
     await client.query(
       `INSERT INTO work_items (
-        id, customer_id, customer_name, customer_phone, customer_email, source, device_type, device_model,
+        id, organization_id, customer_id, customer_name, customer_phone, customer_email, source, device_type, device_model,
         serial_number, issue_summary, priority, status, assigned_technician_id, analysis, required_changes,
         estimated_price, labor_estimate, parts_estimate, diagnostic_fee, approved_by_customer, parts_required,
         created_at, created_by, updated_at, updated_by, promised_by
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)`,
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)`,
       [
         item.id,
+        organizationId,
         item.customerId,
         item.customerName,
         item.customerPhone,
@@ -520,19 +542,21 @@ export async function createWorkItem(draft: WorkItemDraft, actor: string): Promi
       recipient: customer.phone,
       message: `We received your ${item.deviceModel} repair request (${item.id}). We'll text you as the status changes.`,
     },
+    organizationId,
     stamp,
   );
 
-  return getServiceDeskState();
+  return getServiceDeskState(organizationId);
 }
 
 export async function updateWorkItem(
   id: string,
   patch: Partial<Omit<WorkItem, 'id' | 'customerId' | 'updates'>>,
+  organizationId: string,
   actor: UserRole | 'System',
   message: string,
 ): Promise<ServiceDeskState> {
-  const state = await getServiceDeskState();
+  const state = await getServiceDeskState(organizationId);
   const item = state.workItems.find((workItem) => workItem.id === id);
   if (!item) {
     throw new RepositoryError(`Work item ${id} not found`, 404);
@@ -554,7 +578,7 @@ export async function updateWorkItem(
         assigned_technician_id = $12, analysis = $13, required_changes = $14, estimated_price = $15,
         labor_estimate = $16, parts_estimate = $17, diagnostic_fee = $18, approved_by_customer = $19,
         parts_required = $20, updated_at = $21, updated_by = $22, promised_by = $23
-      WHERE id = $1`,
+      WHERE id = $1 AND organization_id = $24`,
       [
         id,
         next.customerName,
@@ -579,6 +603,7 @@ export async function updateWorkItem(
         next.updatedAt,
         actor,
         next.promisedBy,
+        organizationId,
       ],
     );
     await client.query('INSERT INTO work_item_updates (id, work_item_id, actor, message, at) VALUES ($1, $2, $3, $4, $5)', [
@@ -599,15 +624,16 @@ export async function updateWorkItem(
         recipient: next.customerPhone,
         message: `Update on your ${next.deviceModel} repair (${id}): status is now "${next.status}".`,
       },
+      organizationId,
       next.updatedAt,
     );
   }
 
-  return getServiceDeskState();
+  return getServiceDeskState(organizationId);
 }
 
-export async function notifyCustomerNow(id: string): Promise<ServiceDeskState> {
-  const state = await getServiceDeskState();
+export async function notifyCustomerNow(id: string, organizationId: string): Promise<ServiceDeskState> {
+  const state = await getServiceDeskState(organizationId);
   const item = state.workItems.find((workItem) => workItem.id === id);
   if (!item) {
     throw new RepositoryError(`Work item ${id} not found`, 404);
@@ -621,56 +647,61 @@ export async function notifyCustomerNow(id: string): Promise<ServiceDeskState> {
       recipient: item.customerPhone,
       message: `Update on your ${item.deviceModel} repair (${item.id}): status is "${item.status}".`,
     },
+    organizationId,
     nowStamp(),
   );
 
-  return getServiceDeskState();
+  return getServiceDeskState(organizationId);
 }
 
-export async function markNotificationsRead(ids?: string[]): Promise<ServiceDeskState> {
-  await markNotificationsReadInDb(ids);
-  return getServiceDeskState();
+export async function markNotificationsRead(organizationId: string, ids?: string[]): Promise<ServiceDeskState> {
+  await markNotificationsReadInDb(organizationId, ids);
+  return getServiceDeskState(organizationId);
 }
 
-export async function approveEstimate(id: string): Promise<ServiceDeskState> {
-  return updateWorkItem(id, { approvedByCustomer: true, status: 'Customer Approved' }, 'Customer', 'Customer approved the shared estimate.');
+export async function approveEstimate(id: string, organizationId: string): Promise<ServiceDeskState> {
+  return updateWorkItem(id, { approvedByCustomer: true, status: 'Customer Approved' }, organizationId, 'Customer', 'Customer approved the shared estimate.');
 }
 
-export async function cancelWorkItem(id: string, actor: UserRole): Promise<ServiceDeskState> {
-  return updateWorkItem(id, { status: 'Cancelled' }, actor, 'Work item cancelled.');
+export async function cancelWorkItem(id: string, organizationId: string, actor: UserRole): Promise<ServiceDeskState> {
+  return updateWorkItem(id, { status: 'Cancelled' }, organizationId, actor, 'Work item cancelled.');
 }
 
-export async function deleteWorkItem(id: string): Promise<ServiceDeskState> {
-  const result = await query('DELETE FROM work_items WHERE id = $1', [id]);
+export async function deleteWorkItem(id: string, organizationId: string): Promise<ServiceDeskState> {
+  const result = await query('DELETE FROM work_items WHERE id = $1 AND organization_id = $2', [id, organizationId]);
   if (result.rowCount === 0) {
     throw new RepositoryError(`Work item ${id} not found`, 404);
   }
 
-  return getServiceDeskState();
+  return getServiceDeskState(organizationId);
 }
 
-export async function adjustInventory(sku: string, delta: number): Promise<ServiceDeskState> {
+export async function adjustInventory(sku: string, organizationId: string, delta: number): Promise<ServiceDeskState> {
   if (!Number.isFinite(delta)) {
     throw new RepositoryError('Inventory adjustment must be a valid number.');
   }
 
-  const result = await query('UPDATE inventory_parts SET quantity = GREATEST(0, quantity + $2) WHERE sku = $1', [sku.toUpperCase(), delta]);
+  const result = await query('UPDATE inventory_parts SET quantity = GREATEST(0, quantity + $3) WHERE sku = $1 AND organization_id = $2', [
+    sku.toUpperCase(),
+    organizationId,
+    delta,
+  ]);
   if (result.rowCount === 0) {
     throw new RepositoryError(`Inventory part ${sku} not found`, 404);
   }
 
-  return getServiceDeskState();
+  return getServiceDeskState(organizationId);
 }
 
-export async function upsertInventoryPart(part: InventoryPart, actor: string): Promise<ServiceDeskState> {
+export async function upsertInventoryPart(part: InventoryPart, organizationId: string, actor: string): Promise<ServiceDeskState> {
   if (!part.sku.trim() || !part.name.trim()) {
     throw new RepositoryError('Part SKU and name are required.');
   }
 
   await query(
-    `INSERT INTO inventory_parts (sku, name, compatible_with, quantity, reorder_level, unit_cost, created_by, updated_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
-     ON CONFLICT (sku) DO UPDATE SET
+    `INSERT INTO inventory_parts (sku, organization_id, name, compatible_with, quantity, reorder_level, unit_cost, created_by, updated_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+     ON CONFLICT (organization_id, sku) DO UPDATE SET
       name = EXCLUDED.name,
       compatible_with = EXCLUDED.compatible_with,
       quantity = EXCLUDED.quantity,
@@ -678,58 +709,92 @@ export async function upsertInventoryPart(part: InventoryPart, actor: string): P
       unit_cost = EXCLUDED.unit_cost,
       updated_at = NOW(),
       updated_by = EXCLUDED.updated_by`,
-    [part.sku.toUpperCase(), part.name.trim(), part.compatibleWith, Math.max(0, part.quantity), Math.max(0, part.reorderLevel), Math.max(0, part.unitCost), actor],
+    [
+      part.sku.toUpperCase(),
+      organizationId,
+      part.name.trim(),
+      part.compatibleWith,
+      Math.max(0, part.quantity),
+      Math.max(0, part.reorderLevel),
+      Math.max(0, part.unitCost),
+      actor,
+    ],
   );
 
-  return getServiceDeskState();
+  return getServiceDeskState(organizationId);
 }
 
-export async function deleteInventoryPart(sku: string): Promise<ServiceDeskState> {
+export async function deleteInventoryPart(sku: string, organizationId: string): Promise<ServiceDeskState> {
   const normalizedSku = sku.toUpperCase();
-  const usage = await query<{ id: string }>('SELECT id FROM work_items WHERE $1 = ANY(parts_required) LIMIT 5', [normalizedSku]);
+  const usage = await query<{ id: string }>('SELECT id FROM work_items WHERE $1 = ANY(parts_required) AND organization_id = $2 LIMIT 5', [
+    normalizedSku,
+    organizationId,
+  ]);
   if (usage.rowCount && usage.rowCount > 0) {
     throw new RepositoryError(`Cannot delete ${normalizedSku} — it is used by ${usage.rowCount === 5 ? '5+' : usage.rowCount} work item(s).`, 409);
   }
 
-  const result = await query('DELETE FROM inventory_parts WHERE sku = $1', [normalizedSku]);
+  const result = await query('DELETE FROM inventory_parts WHERE sku = $1 AND organization_id = $2', [normalizedSku, organizationId]);
   if (result.rowCount === 0) {
     throw new RepositoryError(`Inventory part ${sku} not found`, 404);
   }
 
-  return getServiceDeskState();
+  return getServiceDeskState(organizationId);
 }
 
-export async function updateCustomer(id: string, patch: Pick<Customer, 'name' | 'phone' | 'email'>, actor: string): Promise<ServiceDeskState> {
+export async function createCustomer(draft: Pick<Customer, 'name' | 'phone' | 'email'>, organizationId: string, actor: string): Promise<ServiceDeskState> {
+  if (!draft.name?.trim() || !draft.phone?.trim() || !draft.email?.trim()) {
+    throw new RepositoryError('Customer name, phone, and email are required.');
+  }
+
+  const existing = await query<{ id: string }>('SELECT id FROM customers');
+  const id = nextNumericId('CUST', existing.rows.map((row) => row.id), 2000);
+
+  await query('INSERT INTO customers (id, organization_id, name, phone, email, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $6, $6)', [
+    id,
+    organizationId,
+    draft.name.trim(),
+    draft.phone.trim(),
+    draft.email.trim().toLowerCase(),
+    actor,
+  ]);
+
+  return getServiceDeskState(organizationId);
+}
+
+export async function updateCustomer(
+  id: string,
+  patch: Pick<Customer, 'name' | 'phone' | 'email'>,
+  organizationId: string,
+  actor: string,
+): Promise<ServiceDeskState> {
   if (!patch.name?.trim() || !patch.phone?.trim() || !patch.email?.trim()) {
     throw new RepositoryError('Customer name, phone, and email are required.');
   }
 
-  const result = await query('UPDATE customers SET name = $2, phone = $3, email = $4, updated_at = NOW(), updated_by = $5 WHERE id = $1', [
-    id,
-    patch.name.trim(),
-    patch.phone.trim(),
-    patch.email.trim(),
-    actor,
-  ]);
+  const result = await query(
+    'UPDATE customers SET name = $3, phone = $4, email = $5, updated_at = NOW(), updated_by = $6 WHERE id = $1 AND organization_id = $2',
+    [id, organizationId, patch.name.trim(), patch.phone.trim(), patch.email.trim(), actor],
+  );
   if (result.rowCount === 0) {
     throw new RepositoryError(`Customer ${id} not found`, 404);
   }
 
-  return getServiceDeskState();
+  return getServiceDeskState(organizationId);
 }
 
-export async function deleteCustomer(id: string): Promise<ServiceDeskState> {
-  const usage = await query<{ id: string }>('SELECT id FROM work_items WHERE customer_id = $1 LIMIT 5', [id]);
+export async function deleteCustomer(id: string, organizationId: string): Promise<ServiceDeskState> {
+  const usage = await query<{ id: string }>('SELECT id FROM work_items WHERE customer_id = $1 AND organization_id = $2 LIMIT 5', [id, organizationId]);
   if (usage.rowCount && usage.rowCount > 0) {
     throw new RepositoryError(`Cannot delete this customer — they have ${usage.rowCount === 5 ? '5+' : usage.rowCount} work item(s) on file.`, 409);
   }
 
-  const result = await query('DELETE FROM customers WHERE id = $1', [id]);
+  const result = await query('DELETE FROM customers WHERE id = $1 AND organization_id = $2', [id, organizationId]);
   if (result.rowCount === 0) {
     throw new RepositoryError(`Customer ${id} not found`, 404);
   }
 
-  return getServiceDeskState();
+  return getServiceDeskState(organizationId);
 }
 
 function validateTechnicianDraft(draft: TechnicianDraft) {
@@ -741,56 +806,57 @@ function validateTechnicianDraft(draft: TechnicianDraft) {
   }
 }
 
-export async function createTechnician(draft: TechnicianDraft, actor: string): Promise<ServiceDeskState> {
+export async function createTechnician(draft: TechnicianDraft, organizationId: string, actor: string): Promise<ServiceDeskState> {
   validateTechnicianDraft(draft);
 
   const existing = await query<{ id: string }>('SELECT id FROM technicians');
   const id = nextNumericId('tech', existing.rows.map((row) => row.id), 0);
 
-  await query('INSERT INTO technicians (id, name, email, specialties, active_jobs, created_by, updated_by) VALUES ($1, $2, $3, $4, 0, $5, $5)', [
+  await query('INSERT INTO technicians (id, organization_id, name, email, specialties, active_jobs, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, 0, $6, $6)', [
     id,
+    organizationId,
     draft.name.trim(),
     draft.email.trim().toLowerCase(),
     draft.specialties,
     actor,
   ]);
 
-  return getServiceDeskState();
+  return getServiceDeskState(organizationId);
 }
 
-export async function updateTechnician(id: string, patch: TechnicianDraft, actor: string): Promise<ServiceDeskState> {
+export async function updateTechnician(id: string, patch: TechnicianDraft, organizationId: string, actor: string): Promise<ServiceDeskState> {
   validateTechnicianDraft(patch);
 
-  const result = await query('UPDATE technicians SET name = $2, email = $3, specialties = $4, updated_at = NOW(), updated_by = $5 WHERE id = $1', [
-    id,
-    patch.name.trim(),
-    patch.email.trim().toLowerCase(),
-    patch.specialties,
-    actor,
-  ]);
+  const result = await query(
+    'UPDATE technicians SET name = $3, email = $4, specialties = $5, updated_at = NOW(), updated_by = $6 WHERE id = $1 AND organization_id = $2',
+    [id, organizationId, patch.name.trim(), patch.email.trim().toLowerCase(), patch.specialties, actor],
+  );
   if (result.rowCount === 0) {
     throw new RepositoryError(`Technician ${id} not found`, 404);
   }
 
-  return getServiceDeskState();
+  return getServiceDeskState(organizationId);
 }
 
-export async function deleteTechnician(id: string): Promise<ServiceDeskState> {
-  const usage = await query<{ id: string }>('SELECT id FROM work_items WHERE assigned_technician_id = $1 LIMIT 5', [id]);
+export async function deleteTechnician(id: string, organizationId: string): Promise<ServiceDeskState> {
+  const usage = await query<{ id: string }>('SELECT id FROM work_items WHERE assigned_technician_id = $1 AND organization_id = $2 LIMIT 5', [
+    id,
+    organizationId,
+  ]);
   if (usage.rowCount && usage.rowCount > 0) {
     throw new RepositoryError(`Cannot delete this technician — they are assigned to ${usage.rowCount === 5 ? '5+' : usage.rowCount} work item(s).`, 409);
   }
 
-  const result = await query('DELETE FROM technicians WHERE id = $1', [id]);
+  const result = await query('DELETE FROM technicians WHERE id = $1 AND organization_id = $2', [id, organizationId]);
   if (result.rowCount === 0) {
     throw new RepositoryError(`Technician ${id} not found`, 404);
   }
 
-  return getServiceDeskState();
+  return getServiceDeskState(organizationId);
 }
 
-export async function createInvoice(draft: InvoiceDraft, actor: string): Promise<ServiceDeskState> {
-  const state = await getServiceDeskState();
+export async function createInvoice(draft: InvoiceDraft, organizationId: string, actor: string): Promise<ServiceDeskState> {
+  const state = await getServiceDeskState(organizationId);
   const item = state.workItems.find((workItem) => workItem.id === draft.workItemId);
   if (!item) {
     throw new RepositoryError('Work item is required to create an invoice.', 404);
@@ -807,35 +873,44 @@ export async function createInvoice(draft: InvoiceDraft, actor: string): Promise
 
   const invoiceId = nextNumericId('INV', state.invoices.map((invoice) => invoice.id), 5000);
   await query(
-    `INSERT INTO invoices (id, work_item_id, customer_id, customer_name, amount, labor_amount, parts_amount, diagnostic_fee, status, issued_at, notes, created_by, updated_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'Issued', $9, $10, $11, $11)`,
-    [invoiceId, item.id, item.customerId, item.customerName, amount, laborAmount, partsAmount, diagnosticFee, nowStamp(), draft.notes.trim(), actor],
+    `INSERT INTO invoices (id, organization_id, work_item_id, customer_id, customer_name, amount, labor_amount, parts_amount, diagnostic_fee, status, issued_at, notes, created_by, updated_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'Issued', $10, $11, $12, $12)`,
+    [invoiceId, organizationId, item.id, item.customerId, item.customerName, amount, laborAmount, partsAmount, diagnosticFee, nowStamp(), draft.notes.trim(), actor],
   );
 
-  return getServiceDeskState();
+  return getServiceDeskState(organizationId);
 }
 
-export async function updateInvoiceStatus(id: string, status: InvoiceStatus, actor: string): Promise<ServiceDeskState> {
+export async function updateInvoiceStatus(id: string, status: InvoiceStatus, organizationId: string, actor: string): Promise<ServiceDeskState> {
   const paidAt = status === 'Paid' ? nowStamp() : '';
-  const result = await query('UPDATE invoices SET status = $2, paid_at = $3, updated_at = NOW(), updated_by = $4 WHERE id = $1', [id, status, paidAt, actor]);
+  const result = await query(
+    'UPDATE invoices SET status = $3, paid_at = $4, updated_at = NOW(), updated_by = $5 WHERE id = $1 AND organization_id = $2',
+    [id, organizationId, status, paidAt, actor],
+  );
   if (result.rowCount === 0) {
     throw new RepositoryError(`Invoice ${id} not found`, 404);
   }
 
-  return getServiceDeskState();
+  return getServiceDeskState(organizationId);
 }
 
-export async function deleteInvoice(id: string): Promise<ServiceDeskState> {
-  const result = await query('DELETE FROM invoices WHERE id = $1', [id]);
+export async function deleteInvoice(id: string, organizationId: string): Promise<ServiceDeskState> {
+  const result = await query('DELETE FROM invoices WHERE id = $1 AND organization_id = $2', [id, organizationId]);
   if (result.rowCount === 0) {
     throw new RepositoryError(`Invoice ${id} not found`, 404);
   }
 
-  return getServiceDeskState();
+  return getServiceDeskState(organizationId);
 }
 
-export async function recordInvoicePayment(id: string, method: PaymentMethod, reference: string, actor: string): Promise<ServiceDeskState> {
-  const state = await getServiceDeskState();
+export async function recordInvoicePayment(
+  id: string,
+  method: PaymentMethod,
+  reference: string,
+  organizationId: string,
+  actor: string,
+): Promise<ServiceDeskState> {
+  const state = await getServiceDeskState(organizationId);
   const invoice = state.invoices.find((candidate) => candidate.id === id);
   if (!invoice) {
     throw new RepositoryError(`Invoice ${id} not found`, 404);
@@ -846,14 +921,10 @@ export async function recordInvoicePayment(id: string, method: PaymentMethod, re
   }
 
   const stamp = nowStamp();
-  await query('UPDATE invoices SET status = $2, paid_at = $3, payment_method = $4, payment_reference = $5, updated_at = NOW(), updated_by = $6 WHERE id = $1', [
-    id,
-    'Paid',
-    stamp,
-    method,
-    reference.trim() || `TEST-${id}`,
-    actor,
-  ]);
+  await query(
+    'UPDATE invoices SET status = $3, paid_at = $4, payment_method = $5, payment_reference = $6, updated_at = NOW(), updated_by = $7 WHERE id = $1 AND organization_id = $2',
+    [id, organizationId, 'Paid', stamp, method, reference.trim() || `TEST-${id}`, actor],
+  );
 
   await sendNotification(
     {
@@ -863,32 +934,33 @@ export async function recordInvoicePayment(id: string, method: PaymentMethod, re
       recipient: invoice.customerName,
       message: `Payment received for invoice ${id} (${method}). Thank you!`,
     },
+    organizationId,
     stamp,
   );
 
-  return getServiceDeskState();
+  return getServiceDeskState(organizationId);
 }
 
-export async function createSavedReport(draft: SavedReportDraft, createdBy: string): Promise<ServiceDeskState> {
+export async function createSavedReport(draft: SavedReportDraft, organizationId: string, createdBy: string): Promise<ServiceDeskState> {
   if (!draft.name.trim() || !draft.columns.length) {
     throw new RepositoryError('A report needs a name and at least one column.');
   }
 
   const reportId = `RPT-${Date.now()}`;
   await query(
-    `INSERT INTO saved_reports (id, created_by, name, entity, columns, filter_field, filter_value, created_at)
+    `INSERT INTO saved_reports (id, organization_id, created_by, name, entity, columns, filters, created_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-    [reportId, createdBy, draft.name.trim(), draft.entity, draft.columns, draft.filterField, draft.filterValue, nowStamp()],
+    [reportId, organizationId, createdBy, draft.name.trim(), draft.entity, draft.columns, JSON.stringify(draft.filters ?? []), nowStamp()],
   );
 
-  return getServiceDeskState();
+  return getServiceDeskState(organizationId);
 }
 
-export async function deleteSavedReport(id: string, requestedBy: string): Promise<ServiceDeskState> {
-  const result = await query('DELETE FROM saved_reports WHERE id = $1 AND created_by = $2', [id, requestedBy]);
+export async function deleteSavedReport(id: string, organizationId: string, requestedBy: string): Promise<ServiceDeskState> {
+  const result = await query('DELETE FROM saved_reports WHERE id = $1 AND organization_id = $2 AND created_by = $3', [id, organizationId, requestedBy]);
   if (result.rowCount === 0) {
     throw new RepositoryError(`Saved report ${id} not found`, 404);
   }
 
-  return getServiceDeskState();
+  return getServiceDeskState(organizationId);
 }

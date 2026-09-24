@@ -282,6 +282,26 @@ export const deleteInventoryPartRecord = (state: ServiceDeskState, sku: string):
   return { ...state, inventoryParts: state.inventoryParts.filter((part) => part.sku !== sku) };
 };
 
+export const addCustomerRecord = (state: ServiceDeskState, draft: Pick<Customer, 'name' | 'phone' | 'email'>, actor: string): ServiceDeskState => {
+  const stamp = nowStamp();
+  return {
+    ...state,
+    customers: [
+      {
+        id: nextNumericId('CUST', state.customers.map((customer) => customer.id), 2000),
+        name: draft.name.trim(),
+        phone: draft.phone.trim(),
+        email: draft.email.trim().toLowerCase(),
+        createdAt: stamp,
+        createdBy: actor,
+        updatedAt: stamp,
+        updatedBy: actor,
+      },
+      ...state.customers,
+    ],
+  };
+};
+
 export const updateCustomerRecord = (state: ServiceDeskState, id: string, patch: Pick<Customer, 'name' | 'phone' | 'email'>, actor: string): ServiceDeskState => ({
   ...state,
   customers: state.customers.map((customer) => (customer.id === id ? { ...customer, ...patch, updatedAt: nowStamp(), updatedBy: actor } : customer)),
@@ -423,8 +443,7 @@ export const createSavedReportRecord = (state: ServiceDeskState, draft: SavedRep
         name: draft.name.trim(),
         entity: draft.entity,
         columns: draft.columns,
-        filterField: draft.filterField,
-        filterValue: draft.filterValue,
+        filters: draft.filters,
         createdAt: nowStamp(),
       },
       ...state.savedReports,

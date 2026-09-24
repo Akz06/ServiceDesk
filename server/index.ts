@@ -4,11 +4,13 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
   AuthUser,
+  BulkUserRow,
   Customer,
   InventoryPart,
   InvoiceDraft,
   InvoiceStatus,
   ModuleId,
+  OrganizationSignupDraft,
   PaymentMethod,
   SavedReportDraft,
   TechnicianDraft,
@@ -17,12 +19,25 @@ import type {
   WorkItem,
   WorkItemDraft,
 } from '../src/types';
-import { canAccessModule, createUser, deleteUser, getUserForToken, listUsers, loginWithPassword, logoutToken, seedAuthUsersIfEmpty, updateUser } from './auth';
+import {
+  bulkCreateUsers,
+  canAccessModule,
+  createOrganizationWithAdmin,
+  createUser,
+  deleteUser,
+  getUserForToken,
+  listUsers,
+  loginWithPassword,
+  logoutToken,
+  seedAuthUsersIfEmpty,
+  updateUser,
+} from './auth';
 import { runMigrations } from './migrate';
 import {
   adjustInventory,
   approveEstimate,
   cancelWorkItem,
+  createCustomer,
   createInvoice,
   createSavedReport,
   createTechnician,
@@ -131,6 +146,16 @@ app.post('/api/auth/login', asyncHandler(async (request, response) => {
   response.json(await loginWithPassword(String(body.email ?? ''), String(body.password ?? '')));
 }));
 
+app.post('/api/organizations', asyncHandler(async (request, response) => {
+  const body = request.body as Partial<OrganizationSignupDraft>;
+  response.status(201).json(await createOrganizationWithAdmin({
+    organizationName: String(body.organizationName ?? ''),
+    adminName: String(body.adminName ?? ''),
+    adminEmail: String(body.adminEmail ?? ''),
+    adminPassword: String(body.adminPassword ?? ''),
+  }));
+}));
+
 app.get('/api/auth/me', requireAuth, (request: AuthenticatedRequest, response) => {
   response.json({ user: request.user });
 });
@@ -140,127 +165,186 @@ app.post('/api/auth/logout', requireAuth, asyncHandler(async (request: Authentic
   response.json({ ok: true });
 }));
 
-app.get('/api/admin/users', requireAuth, requireAdmin, asyncHandler(async (_request, response) => {
-  response.json({ users: await listUsers() });
+app.get('/api/admin/users', requireAuth, requireAdmin, asyncHandler(async (request: AuthenticatedRequest, response) => {
+  response.json({ users: await listUsers(String(request.user!.organizationId)) });
 }));
 
 app.post('/api/admin/users', requireAuth, requireAdmin, asyncHandler(async (request: AuthenticatedRequest, response) => {
-  response.status(201).json({ users: await createUser(request.body as UserDraft, String(request.user?.name ?? 'System')) });
+  response.status(201).json({
+    users: await createUser(request.body as UserDraft, String(request.user!.organizationId), String(request.user?.name ?? 'System')),
+  });
+}));
+
+app.post('/api/admin/users/bulk', requireAuth, requireAdmin, asyncHandler(async (request: AuthenticatedRequest, response) => {
+  const body = request.body as { rows?: BulkUserRow[] };
+  response.status(201).json(
+    await bulkCreateUsers(body.rows ?? [], String(request.user!.organizationId), String(request.user?.name ?? 'System')),
+  );
 }));
 
 app.patch('/api/admin/users/:id', requireAuth, requireAdmin, asyncHandler(async (request: AuthenticatedRequest, response) => {
   response.json({
-    users: await updateUser(String(request.params.id), request.body as UserDraft, String(request.user?.id ?? ''), String(request.user?.name ?? 'System')),
+    users: await updateUser(
+      String(request.params.id),
+      request.body as UserDraft,
+      String(request.user!.organizationId),
+      String(request.user?.id ?? ''),
+      String(request.user?.name ?? 'System'),
+    ),
   });
 }));
 
 app.delete('/api/admin/users/:id', requireAuth, requireAdmin, asyncHandler(async (request: AuthenticatedRequest, response) => {
-  response.json({ users: await deleteUser(String(request.params.id), String(request.user?.id ?? '')) });
+  response.json({
+    users: await deleteUser(String(request.params.id), String(request.user!.organizationId), String(request.user?.id ?? '')),
+  });
+}));
+
+app.post('/api/customers', requireAuth, requireAdmin, asyncHandler(async (request: AuthenticatedRequest, response) => {
+  response.status(201).json(
+    await createCustomer(request.body as Pick<Customer, 'name' | 'phone' | 'email'>, String(request.user!.organizationId), String(request.user?.name ?? 'System')),
+  );
 }));
 
 app.patch('/api/customers/:id', requireAuth, requireAdmin, asyncHandler(async (request: AuthenticatedRequest, response) => {
   response.json(
-    await updateCustomer(String(request.params.id), request.body as Pick<Customer, 'name' | 'phone' | 'email'>, String(request.user?.name ?? 'System')),
+    await updateCustomer(
+      String(request.params.id),
+      request.body as Pick<Customer, 'name' | 'phone' | 'email'>,
+      String(request.user!.organizationId),
+      String(request.user?.name ?? 'System'),
+    ),
   );
 }));
 
-app.delete('/api/customers/:id', requireAuth, requireAdmin, asyncHandler(async (request, response) => {
-  response.json(await deleteCustomer(String(request.params.id)));
+app.delete('/api/customers/:id', requireAuth, requireAdmin, asyncHandler(async (request: AuthenticatedRequest, response) => {
+  response.json(await deleteCustomer(String(request.params.id), String(request.user!.organizationId)));
 }));
 
 app.post('/api/technicians', requireAuth, requireAdmin, asyncHandler(async (request: AuthenticatedRequest, response) => {
-  response.status(201).json(await createTechnician(request.body as TechnicianDraft, String(request.user?.name ?? 'System')));
+  response.status(201).json(
+    await createTechnician(request.body as TechnicianDraft, String(request.user!.organizationId), String(request.user?.name ?? 'System')),
+  );
 }));
 
 app.patch('/api/technicians/:id', requireAuth, requireAdmin, asyncHandler(async (request: AuthenticatedRequest, response) => {
-  response.json(await updateTechnician(String(request.params.id), request.body as TechnicianDraft, String(request.user?.name ?? 'System')));
+  response.json(
+    await updateTechnician(
+      String(request.params.id),
+      request.body as TechnicianDraft,
+      String(request.user!.organizationId),
+      String(request.user?.name ?? 'System'),
+    ),
+  );
 }));
 
-app.delete('/api/technicians/:id', requireAuth, requireAdmin, asyncHandler(async (request, response) => {
-  response.json(await deleteTechnician(String(request.params.id)));
+app.delete('/api/technicians/:id', requireAuth, requireAdmin, asyncHandler(async (request: AuthenticatedRequest, response) => {
+  response.json(await deleteTechnician(String(request.params.id), String(request.user!.organizationId)));
 }));
 
-app.delete('/api/inventory/:sku', requireAuth, requireAnyModule('admin', 'agent'), asyncHandler(async (request, response) => {
-  response.json(await deleteInventoryPart(String(request.params.sku)));
+app.delete('/api/inventory/:sku', requireAuth, requireAnyModule('admin', 'agent'), asyncHandler(async (request: AuthenticatedRequest, response) => {
+  response.json(await deleteInventoryPart(String(request.params.sku), String(request.user!.organizationId)));
 }));
 
-app.get('/api/state', requireAuth, asyncHandler(async (_request, response) => {
-  response.json(await getServiceDeskState());
+app.get('/api/state', requireAuth, asyncHandler(async (request: AuthenticatedRequest, response) => {
+  response.json(await getServiceDeskState(String(request.user!.organizationId)));
 }));
 
 app.post('/api/work-items', requireAuth, requireModule('agent'), asyncHandler(async (request: AuthenticatedRequest, response) => {
-  response.status(201).json(await createWorkItem(request.body as WorkItemDraft, String(request.user?.name ?? 'System')));
+  response.status(201).json(
+    await createWorkItem(request.body as WorkItemDraft, String(request.user!.organizationId), String(request.user?.name ?? 'System')),
+  );
 }));
 
-app.patch('/api/work-items/:id', requireAuth, requireAnyModule('agent', 'technician'), asyncHandler(async (request, response) => {
+app.patch('/api/work-items/:id', requireAuth, requireAnyModule('agent', 'technician'), asyncHandler(async (request: AuthenticatedRequest, response) => {
   const body = request.body as {
     patch: Partial<Omit<WorkItem, 'id' | 'customerId' | 'updates'>>;
     actor: UserRole | 'System';
     message: string;
   };
-  response.json(await updateWorkItem(String(request.params.id), body.patch, body.actor, body.message));
+  response.json(await updateWorkItem(String(request.params.id), body.patch, String(request.user!.organizationId), body.actor, body.message));
 }));
 
-app.delete('/api/work-items/:id', requireAuth, requireModule('agent'), asyncHandler(async (request, response) => {
-  response.json(await deleteWorkItem(String(request.params.id)));
+app.delete('/api/work-items/:id', requireAuth, requireModule('agent'), asyncHandler(async (request: AuthenticatedRequest, response) => {
+  response.json(await deleteWorkItem(String(request.params.id), String(request.user!.organizationId)));
 }));
 
-app.post('/api/work-items/:id/approval', requireAuth, requireModule('customer'), asyncHandler(async (request, response) => {
-  response.json(await approveEstimate(String(request.params.id)));
+app.post('/api/work-items/:id/approval', requireAuth, requireModule('customer'), asyncHandler(async (request: AuthenticatedRequest, response) => {
+  response.json(await approveEstimate(String(request.params.id), String(request.user!.organizationId)));
 }));
 
-app.post('/api/work-items/:id/cancel', requireAuth, requireModule('agent'), asyncHandler(async (request, response) => {
+app.post('/api/work-items/:id/cancel', requireAuth, requireModule('agent'), asyncHandler(async (request: AuthenticatedRequest, response) => {
   const body = request.body as { actor: UserRole };
-  response.json(await cancelWorkItem(String(request.params.id), body.actor));
+  response.json(await cancelWorkItem(String(request.params.id), String(request.user!.organizationId), body.actor));
 }));
 
-app.patch('/api/inventory/:sku/adjust', requireAuth, requireAnyModule('admin', 'agent', 'technician'), asyncHandler(async (request, response) => {
+app.patch('/api/inventory/:sku/adjust', requireAuth, requireAnyModule('admin', 'agent', 'technician'), asyncHandler(async (request: AuthenticatedRequest, response) => {
   const body = request.body as { delta: number };
-  response.json(await adjustInventory(String(request.params.sku), Number(body.delta)));
+  response.json(await adjustInventory(String(request.params.sku), String(request.user!.organizationId), Number(body.delta)));
 }));
 
 app.put('/api/inventory/:sku', requireAuth, requireAnyModule('admin', 'agent'), asyncHandler(async (request: AuthenticatedRequest, response) => {
   const part = request.body as InventoryPart;
-  response.json(await upsertInventoryPart({ ...part, sku: String(request.params.sku).toUpperCase() }, String(request.user?.name ?? 'System')));
+  response.json(
+    await upsertInventoryPart(
+      { ...part, sku: String(request.params.sku).toUpperCase() },
+      String(request.user!.organizationId),
+      String(request.user?.name ?? 'System'),
+    ),
+  );
 }));
 
 app.post('/api/invoices', requireAuth, requireAnyModule('admin', 'agent'), asyncHandler(async (request: AuthenticatedRequest, response) => {
-  response.status(201).json(await createInvoice(request.body as InvoiceDraft, String(request.user?.name ?? 'System')));
+  response.status(201).json(
+    await createInvoice(request.body as InvoiceDraft, String(request.user!.organizationId), String(request.user?.name ?? 'System')),
+  );
 }));
 
 app.patch('/api/invoices/:id', requireAuth, requireAnyModule('admin', 'agent'), asyncHandler(async (request: AuthenticatedRequest, response) => {
   const body = request.body as { status: InvoiceStatus };
-  response.json(await updateInvoiceStatus(String(request.params.id), body.status, String(request.user?.name ?? 'System')));
+  response.json(
+    await updateInvoiceStatus(String(request.params.id), body.status, String(request.user!.organizationId), String(request.user?.name ?? 'System')),
+  );
 }));
 
-app.delete('/api/invoices/:id', requireAuth, requireAnyModule('admin', 'agent'), asyncHandler(async (request, response) => {
-  response.json(await deleteInvoice(String(request.params.id)));
+app.delete('/api/invoices/:id', requireAuth, requireAnyModule('admin', 'agent'), asyncHandler(async (request: AuthenticatedRequest, response) => {
+  response.json(await deleteInvoice(String(request.params.id), String(request.user!.organizationId)));
 }));
 
 app.post('/api/invoices/:id/payment', requireAuth, requireAnyModule('admin', 'agent'), asyncHandler(async (request: AuthenticatedRequest, response) => {
   const body = request.body as { method: PaymentMethod; reference: string };
-  response.json(await recordInvoicePayment(String(request.params.id), body.method, String(body.reference ?? ''), String(request.user?.name ?? 'System')));
+  response.json(
+    await recordInvoicePayment(
+      String(request.params.id),
+      body.method,
+      String(body.reference ?? ''),
+      String(request.user!.organizationId),
+      String(request.user?.name ?? 'System'),
+    ),
+  );
 }));
 
-app.post('/api/work-items/:id/notify', requireAuth, requireAnyModule('admin', 'agent'), asyncHandler(async (request, response) => {
-  response.json(await notifyCustomerNow(String(request.params.id)));
+app.post('/api/work-items/:id/notify', requireAuth, requireAnyModule('admin', 'agent'), asyncHandler(async (request: AuthenticatedRequest, response) => {
+  response.json(await notifyCustomerNow(String(request.params.id), String(request.user!.organizationId)));
 }));
 
-app.post('/api/notifications/read', requireAuth, requireAdmin, asyncHandler(async (request, response) => {
+app.post('/api/notifications/read', requireAuth, requireAdmin, asyncHandler(async (request: AuthenticatedRequest, response) => {
   const { ids } = request.body as { ids?: string[] };
-  response.json(await markNotificationsRead(ids));
+  response.json(await markNotificationsRead(String(request.user!.organizationId), ids));
 }));
 
 app.post('/api/reports', requireAuth, requireAdmin, asyncHandler(async (request: AuthenticatedRequest, response) => {
-  response.status(201).json(await createSavedReport(request.body as SavedReportDraft, String(request.user?.id ?? '')));
+  response.status(201).json(
+    await createSavedReport(request.body as SavedReportDraft, String(request.user!.organizationId), String(request.user?.id ?? '')),
+  );
 }));
 
 app.delete('/api/reports/:id', requireAuth, requireAdmin, asyncHandler(async (request: AuthenticatedRequest, response) => {
-  response.json(await deleteSavedReport(String(request.params.id), String(request.user?.id ?? '')));
+  response.json(await deleteSavedReport(String(request.params.id), String(request.user!.organizationId), String(request.user?.id ?? '')));
 }));
 
-app.get('/api/export/invoices.csv', requireAuth, requireAdmin, asyncHandler(async (_request, response) => {
-  const state = await getServiceDeskState();
+app.get('/api/export/invoices.csv', requireAuth, requireAdmin, asyncHandler(async (request: AuthenticatedRequest, response) => {
+  const state = await getServiceDeskState(String(request.user!.organizationId));
   const csv = toCsv(
     ['Invoice ID', 'Work Item', 'Customer', 'Labor', 'Parts', 'Diagnostic Fee', 'Total', 'Status', 'Issued At', 'Paid At', 'Payment Method', 'Payment Reference'],
     state.invoices.map((invoice) => [
@@ -283,8 +367,8 @@ app.get('/api/export/invoices.csv', requireAuth, requireAdmin, asyncHandler(asyn
   response.send(csv);
 }));
 
-app.get('/api/export/customers.csv', requireAuth, requireAdmin, asyncHandler(async (_request, response) => {
-  const state = await getServiceDeskState();
+app.get('/api/export/customers.csv', requireAuth, requireAdmin, asyncHandler(async (request: AuthenticatedRequest, response) => {
+  const state = await getServiceDeskState(String(request.user!.organizationId));
   const csv = toCsv(
     ['Customer ID', 'Name', 'Phone', 'Email', 'Repairs'],
     state.customers.map((customer) => [
@@ -300,9 +384,9 @@ app.get('/api/export/customers.csv', requireAuth, requireAdmin, asyncHandler(asy
   response.send(csv);
 }));
 
-app.post('/api/reset', requireAuth, requireAdmin, asyncHandler(async (_request, response) => {
+app.post('/api/reset', requireAuth, requireAdmin, asyncHandler(async (request: AuthenticatedRequest, response) => {
   const { initialServiceDeskState } = await import('../src/data/repairShop');
-  response.json(await replaceAllData(initialServiceDeskState));
+  response.json(await replaceAllData(initialServiceDeskState, String(request.user!.organizationId)));
 }));
 
 app.use(express.static(distPath));
