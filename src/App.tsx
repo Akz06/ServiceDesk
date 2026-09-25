@@ -169,7 +169,6 @@ interface SectionMeta {
  */
 const masterNav: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', modules: ['admin', 'agent', 'technician'], icon: LayoutDashboard },
-  { id: 'organization', label: 'Organization', modules: ['admin'], icon: Building2 },
   { id: 'people', label: 'People', modules: ['admin'], icon: UsersIcon, children: [
     { id: 'users', label: 'Users', modules: ['admin'] },
     { id: 'customers', label: 'Customers', modules: ['admin'] },
@@ -191,6 +190,7 @@ const masterNav: NavItem[] = [
   { id: 'catalog', label: 'Catalog', modules: ['admin'], icon: BookOpen },
   { id: 'reports', label: 'Export Reports', modules: ['admin'], icon: FileBarChart2 },
   { id: 'repairs', label: 'My Repairs', modules: ['admin', 'customer'], icon: Smartphone },
+  { id: 'organization', label: 'Organization', modules: ['admin'], icon: Building2 },
 ];
 
 const sectionMeta: Record<string, SectionMeta> = {
@@ -276,7 +276,7 @@ function App() {
     return <HomePage auth={auth} onLoginSuccess={handleLoginSuccess} />;
   }
 
-  return <Workspace user={auth.user} onLogout={handleLogout} />;
+  return <Workspace user={auth.user} onLogout={handleLogout} onRenameOrganization={auth.renameOrganization} />;
 }
 
 function HomePage({
@@ -404,9 +404,11 @@ function HomePage({
 function Workspace({
   user,
   onLogout,
+  onRenameOrganization,
 }: {
   user: AuthUser;
   onLogout: () => Promise<void>;
+  onRenameOrganization: (name: string) => Promise<AuthUser>;
 }) {
   const [selectedTechnicianId, setSelectedTechnicianId] = useState('tech-arun');
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
@@ -573,6 +575,7 @@ function Workspace({
             pushToast={toast.push}
             navigate={navigate}
             focusRecordId={focusRecordId}
+            onRenameOrganization={onRenameOrganization}
           />
         </section>
       </section>
@@ -643,6 +646,7 @@ function WorkspaceContent(
     pushToast: (message: ReactNode, tone?: ToastTone) => void;
     navigate: (id: string, recordId?: string) => void;
     focusRecordId: string | null;
+    onRenameOrganization: (name: string) => Promise<AuthUser>;
   },
 ) {
   const {
@@ -679,6 +683,7 @@ function WorkspaceContent(
     pushToast,
     navigate,
     focusRecordId,
+    onRenameOrganization,
   } = props;
   const [selectedDeviceType, setSelectedDeviceType] = useState<DeviceType | 'All'>('All');
 
@@ -693,7 +698,9 @@ function WorkspaceContent(
         <DashboardPanel profile={currentUser.profile} state={state} selectedTechnicianId={selectedTechnicianId} navigate={navigate} moduleAccess={currentUser.moduleAccess} />
       )}
 
-      {activeView === 'organization' && <OrganizationPanel currentUser={currentUser} navigate={navigate} />}
+      {activeView === 'organization' && (
+        <OrganizationPanel currentUser={currentUser} navigate={navigate} onRenameOrganization={onRenameOrganization} pushToast={pushToast} />
+      )}
 
       {activeView === 'users' && <UsersReport currentUser={currentUser} pushToast={pushToast} />}
       {activeView === 'customers' && (
@@ -1053,11 +1060,38 @@ function UserEditForm({
 function OrganizationPanel({
   currentUser,
   navigate,
+  onRenameOrganization,
+  pushToast,
 }: {
   currentUser: AuthUser;
   navigate: (id: string, recordId?: string) => void;
+  onRenameOrganization: (name: string) => Promise<AuthUser>;
+  pushToast: (message: ReactNode, tone?: ToastTone) => void;
 }) {
   const [showBulkAdd, setShowBulkAdd] = useState(false);
+  const [organizationName, setOrganizationName] = useState(currentUser.organizationName);
+  const [lastSyncedName, setLastSyncedName] = useState(currentUser.organizationName);
+  const [isSaving, setIsSaving] = useState(false);
+
+  if (currentUser.organizationName !== lastSyncedName) {
+    setLastSyncedName(currentUser.organizationName);
+    setOrganizationName(currentUser.organizationName);
+  }
+
+  const hasChanges = organizationName.trim().length > 0 && organizationName.trim() !== currentUser.organizationName;
+
+  const saveSettings = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setIsSaving(true);
+    try {
+      await onRenameOrganization(organizationName);
+      pushToast('Organization settings saved.');
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Unable to save organization settings.', 'error');
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   return (
     <div className="creator-page">
@@ -1076,6 +1110,19 @@ function OrganizationPanel({
             </button>
           </div>
         </div>
+      </section>
+
+      <section className="creator-panel">
+        <div className="creator-panel-header"><div><p className="eyebrow">Organization settings</p><h2>General</h2></div></div>
+        <form className="creator-form view-canvas" onSubmit={(event) => void saveSettings(event)}>
+          <label>
+            Organization name
+            <input value={organizationName} onChange={(event) => setOrganizationName(event.target.value)} required minLength={2} />
+          </label>
+          <div className="card-actions">
+            <button type="submit" className="primary-button" disabled={!hasChanges || isSaving}>{isSaving ? 'Saving…' : 'Save changes'}</button>
+          </div>
+        </form>
       </section>
 
       {showBulkAdd && (

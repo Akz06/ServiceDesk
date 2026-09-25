@@ -30,6 +30,7 @@ import {
   loginWithPassword,
   logoutToken,
   seedAuthUsersIfEmpty,
+  updateOrganizationName,
   updateUser,
 } from './auth';
 import { runMigrations } from './migrate';
@@ -154,6 +155,13 @@ app.post('/api/organizations', asyncHandler(async (request, response) => {
     adminEmail: String(body.adminEmail ?? ''),
     adminPassword: String(body.adminPassword ?? ''),
   }));
+}));
+
+app.patch('/api/organization', requireAuth, requireAdmin, asyncHandler(async (request: AuthenticatedRequest, response) => {
+  const body = request.body as { name?: string };
+  response.json({
+    user: await updateOrganizationName(String(request.user!.organizationId), String(request.user!.id), String(body.name ?? '')),
+  });
 }));
 
 app.get('/api/auth/me', requireAuth, (request: AuthenticatedRequest, response) => {

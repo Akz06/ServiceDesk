@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import type { AuthUser, OrganizationSignupDraft } from '../types';
-import { authApi, clearAuthSession, getStoredAuthUser, isApiPersistenceEnabled, storeAuthSession } from '../services/apiClient';
+import { authApi, clearAuthSession, getStoredAuthToken, getStoredAuthUser, isApiPersistenceEnabled, storeAuthSession } from '../services/apiClient';
 
 const localDemoOrganizationId = 'local-demo-org';
 const localDemoOrganizationName = 'Demo Organization';
@@ -82,6 +82,23 @@ export function useAuth() {
     }
   }, []);
 
+  const renameOrganization = useCallback(async (name: string) => {
+    if (isApiPersistenceEnabled) {
+      const { user: updated } = await authApi.updateOrganization(name);
+      storeAuthSession({ token: getStoredAuthToken() ?? '', user: updated });
+      setUser(updated);
+      return updated;
+    }
+
+    if (!user) {
+      throw new Error('Not signed in.');
+    }
+    const updated: AuthUser = { ...user, organizationName: name.trim() };
+    storeAuthSession({ token: 'local-demo-token', user: updated });
+    setUser(updated);
+    return updated;
+  }, [user]);
+
   const logout = useCallback(async () => {
     if (isApiPersistenceEnabled) {
       try {
@@ -94,5 +111,5 @@ export function useAuth() {
     setUser(null);
   }, []);
 
-  return { user, login, signup, logout, isAuthenticating, authError };
+  return { user, login, signup, renameOrganization, logout, isAuthenticating, authError };
 }

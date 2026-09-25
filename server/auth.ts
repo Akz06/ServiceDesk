@@ -289,6 +289,31 @@ export async function createOrganizationWithAdmin(input: OrganizationSignupDraft
   return { token, user: toAuthUser(row) };
 }
 
+export async function updateOrganizationName(organizationId: string, userId: string, name: string): Promise<AuthUser> {
+  const trimmed = name.trim();
+  if (trimmed.length < 2) {
+    throw new AuthError('Organization name must be at least 2 characters.');
+  }
+
+  const result = await query('UPDATE organizations SET name = $2 WHERE id = $1', [organizationId, trimmed]);
+  if (result.rowCount === 0) {
+    throw new AuthError('Organization not found.', 404);
+  }
+
+  const userResult = await query<UserRow>(
+    `SELECT users.*, organizations.name AS organization_name
+     FROM users
+     JOIN organizations ON organizations.id = users.organization_id
+     WHERE users.id = $1`,
+    [userId],
+  );
+  if (!userResult.rows[0]) {
+    throw new AuthError('User not found.', 404);
+  }
+
+  return toAuthUser(userResult.rows[0]);
+}
+
 export async function bulkCreateUsers(rows: BulkUserRow[], organizationId: string, actorName: string): Promise<BulkUserCreationResult> {
   const created: BulkUserCreationResult['created'] = [];
   const failed: BulkUserCreationResult['failed'] = [];
