@@ -23,6 +23,17 @@ export const getExistingSessionId = (): string | null => {
   return (route === 'login' || route === 'app') && id ? id : null;
 };
 
+const SESSION_ID_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyz';
+const SESSION_ID_LENGTH = 8;
+
+// This id is a routing/bookmarking convenience only — never an auth credential — so a
+// short random string is plenty; it just needs to keep the URL out of the way.
+export const createSessionId = (): string => {
+  const bytes = new Uint8Array(SESSION_ID_LENGTH);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => SESSION_ID_ALPHABET[byte % SESSION_ID_ALPHABET.length]).join('');
+};
+
 export const getInitialModuleFromUrl = (): ModuleId | null => {
   const [, route] = window.location.pathname.split('/');
   if (route !== 'app') {

@@ -54,7 +54,7 @@ import { useAuth } from './hooks/useAuth';
 import { useServiceDesk } from './hooks/useServiceDesk';
 import { useToast } from './hooks/useToast';
 import type { ToastTone } from './hooks/useToast';
-import { getExistingSessionId, getInitialModuleFromUrl, updateUrlForModule } from './services/routing';
+import { createSessionId, getExistingSessionId, getInitialModuleFromUrl, updateUrlForModule } from './services/routing';
 import { getMetrics, getNextStatuses } from './services/serviceDeskStore';
 import { isApiPersistenceEnabled, userApi } from './services/apiClient';
 import type {
@@ -263,7 +263,7 @@ function App() {
 
   const handleLoginSuccess = (user: AuthUser) => {
     const nextModule = initialModule && user.moduleAccess.includes(initialModule) ? initialModule : defaultModuleForProfile(user.profile);
-    const nextSessionId = sessionId ?? crypto.randomUUID();
+    const nextSessionId = sessionId ?? createSessionId();
     setSessionId(nextSessionId);
     setActiveModule(nextModule);
     updateUrlForModule(nextSessionId, nextModule);
