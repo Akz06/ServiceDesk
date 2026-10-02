@@ -292,6 +292,14 @@ export async function getServiceDeskState(organizationId: string): Promise<Servi
 }
 
 export async function replaceAllData(state: ServiceDeskState, organizationId: string) {
+  // customers, technicians, work_items and invoices all have a single global primary key
+  // (unlike inventory_parts, which is keyed on (organization_id, sku)) — fine for normal usage,
+  // since real records get globally-unique generated ids, but this dataset ships with fixed
+  // ids (CUST-2001, WI-1024, ...), so loading it into a second organization would collide with
+  // whatever the first organization already has. Namespace every id to this org so the same
+  // dataset can be loaded into any number of organizations.
+  const scopedId = (id: string) => `${organizationId}:${id}`;
+
   await withTransaction(async (client) => {
     await client.query('DELETE FROM invoices WHERE organization_id = $1', [organizationId]);
     await client.query('DELETE FROM work_item_updates WHERE work_item_id IN (SELECT id FROM work_items WHERE organization_id = $1)', [organizationId]);
@@ -302,7 +310,7 @@ export async function replaceAllData(state: ServiceDeskState, organizationId: st
 
     for (const customer of state.customers) {
       await client.query('INSERT INTO customers (id, organization_id, name, phone, email, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $6, $6)', [
-        customer.id,
+        scopedId(customer.id),
         organizationId,
         customer.name,
         customer.phone,
@@ -314,7 +322,7 @@ export async function replaceAllData(state: ServiceDeskState, organizationId: st
     for (const technician of state.technicians) {
       await client.query(
         'INSERT INTO technicians (id, organization_id, name, email, specialties, active_jobs, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $7)',
-        [technician.id, organizationId, technician.name, technician.email, technician.specialties, technician.activeJobs, technician.createdBy],
+        [scopedId(technician.id), organizationId, technician.name, technician.email, technician.specialties, technician.activeJobs, technician.createdBy],
       );
     }
 
@@ -327,9 +335,9 @@ export async function replaceAllData(state: ServiceDeskState, organizationId: st
           created_at, created_by, updated_at, updated_by, promised_by
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)`,
         [
-          item.id,
+          scopedId(item.id),
           organizationId,
-          item.customerId,
+          scopedId(item.customerId),
           item.customerName,
           item.customerPhone,
           item.customerEmail,
@@ -340,7 +348,7 @@ export async function replaceAllData(state: ServiceDeskState, organizationId: st
           item.issueSummary,
           item.priority,
           item.status,
-          item.assignedTechnicianId,
+          scopedId(item.assignedTechnicianId),
           item.analysis,
           item.requiredChanges,
           item.estimatedPrice,
@@ -359,8 +367,8 @@ export async function replaceAllData(state: ServiceDeskState, organizationId: st
 
       for (const update of item.updates) {
         await client.query('INSERT INTO work_item_updates (id, work_item_id, actor, message, at) VALUES ($1, $2, $3, $4, $5)', [
-          update.id,
-          item.id,
+          scopedId(update.id),
+          scopedId(item.id),
           update.actor,
           update.message,
           update.at,
@@ -383,10 +391,10 @@ export async function replaceAllData(state: ServiceDeskState, organizationId: st
           status, issued_at, paid_at, payment_method, payment_reference, notes, created_by, updated_by
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16)`,
         [
-          invoice.id,
+          scopedId(invoice.id),
           organizationId,
-          invoice.workItemId,
-          invoice.customerId,
+          scopedId(invoice.workItemId),
+          scopedId(invoice.customerId),
           invoice.customerName,
           invoice.amount,
           invoice.laborAmount,
