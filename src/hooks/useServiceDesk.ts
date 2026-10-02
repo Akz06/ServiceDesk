@@ -101,10 +101,12 @@ export function useServiceDesk() {
       setState(next);
       saveServiceDeskState(next);
     } catch (apiError) {
-      setError(apiError instanceof Error ? apiError.message : 'Unable to save service desk data.');
+      const message = apiError instanceof Error ? apiError.message : 'Unable to save service desk data.';
+      // Still surfaced via the shared `error` state (the sync banner), but also rethrown so
+      // callers can show per-action feedback (e.g. a toast) instead of assuming success.
+      setError(message);
+      throw apiError instanceof Error ? apiError : new Error(message);
     }
-    // Resolves either way — failures are surfaced via `error` state (the sync banner),
-    // not by rejecting, so existing fire-and-forget call sites don't need a .catch().
   };
 
   return {

@@ -84,4 +84,100 @@ describe('App workflow', () => {
 
     expect(screen.getAllByText('$155').length).toBeGreaterThan(0);
   });
+
+  it('creates a brand-new organization via signup and lands in its own workspace', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole('tab', { name: /create organization/i }));
+    await user.type(screen.getByLabelText(/organization name/i), 'Riverside Repair Co');
+    await user.type(screen.getByLabelText(/your name/i), 'Taylor Admin');
+    await user.type(screen.getByLabelText(/^email$/i), 'taylor@riverside.example');
+    await user.type(screen.getByLabelText(/^password$/i), 'SuperSecret123');
+    await user.click(screen.getByRole('button', { name: /^create organization$/i }));
+
+    expect(await screen.findByRole('button', { name: /organization/i })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /organization/i }));
+    expect(await screen.findByText('Riverside Repair Co')).toBeInTheDocument();
+  });
+
+  it('bulk-adds users from pasted CSV, reporting both created and failed rows', async () => {
+    const user = await loginAs('admin@servicedesk.local', 'Admin@12345');
+
+    await user.click(screen.getByRole('button', { name: /organization/i }));
+    await user.click(screen.getByRole('button', { name: /bulk add users/i }));
+
+    const csv = [
+      'name,email,profile',
+      'Alex Rivera,alex.rivera@example.com,agent',
+      'Bad Row,not-an-email,agent',
+      'Duplicate Admin,admin@servicedesk.local,agent',
+    ].join('\n');
+    await user.type(screen.getByLabelText(/paste csv/i), csv);
+
+    // The malformed-email row is caught at parse time, before submission even starts.
+    expect(screen.getByText(/invalid email/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /create \d+ users?/i }));
+
+    // The valid row is created; the row re-using an existing email is rejected at submit time.
+    expect(await screen.findByText('Alex Rivera')).toBeInTheDocument();
+    expect(screen.getByText(/already exists/i)).toBeInTheDocument();
+  });
+
+  it('creates an invoice and records a payment against it', async () => {
+    const user = await loginAs('admin@servicedesk.local', 'Admin@12345');
+
+    await user.click(screen.getByRole('button', { name: /^invoices$/i }));
+    await user.click(screen.getByRole('button', { name: /new invoice/i }));
+    await user.clear(screen.getByLabelText(/^labor/i));
+    await user.type(screen.getByLabelText(/^labor/i), '321');
+    await user.clear(screen.getByLabelText(/^parts/i));
+    await user.clear(screen.getByLabelText(/diagnostic fee/i));
+    await user.click(screen.getByRole('button', { name: /issue invoice/i }));
+
+    expect(await screen.findByText('$321')).toBeInTheDocument();
+
+    const row = screen.getByText('$321').closest('tr');
+    expect(row).not.toBeNull();
+    await user.click(within(row as HTMLElement).getByRole('button', { name: /record payment for/i }));
+    await user.click(screen.getByRole('button', { name: /^record payment$/i }));
+
+    expect(await screen.findByText(/payment recorded/i)).toBeInTheDocument();
+  });
+
+  it('adjusts inventory stock from the adjust-stock modal', async () => {
+    const user = await loginAs('admin@servicedesk.local', 'Admin@12345');
+
+    await user.click(screen.getByRole('button', { name: /^inventory$/i }));
+    const row = screen.getByText('USB-C 65W Adapter').closest('tr');
+    expect(row).not.toBeNull();
+    await user.click(within(row as HTMLElement).getByRole('button', { name: /adjust usb-c 65w adapter stock/i }));
+    await user.click(screen.getByRole('button', { name: /increase quantity/i }));
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+    expect(await screen.findByText(/updated usb-c 65w adapter stock/i)).toBeInTheDocument();
+  });
+
+  it('requires confirmation before deleting a saved report, and only deletes when confirmed', async () => {
+    const user = await loginAs('admin@servicedesk.local', 'Admin@12345');
+    const confirmSpy = vi.spyOn(window, 'confirm');
+
+    await user.click(screen.getByRole('button', { name: /export reports/i }));
+    await user.click(screen.getByRole('button', { name: /^save this report$/i }));
+    await user.type(screen.getByPlaceholderText(/report name/i), 'Test Delete Report');
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+    expect(await screen.findByText('Test Delete Report')).toBeInTheDocument();
+
+    confirmSpy.mockReturnValue(false);
+    await user.click(screen.getByRole('button', { name: /^delete$/i }));
+    expect(screen.getByText('Test Delete Report')).toBeInTheDocument();
+
+    confirmSpy.mockReturnValue(true);
+    await user.click(screen.getByRole('button', { name: /^delete$/i }));
+    expect(screen.queryByText('Test Delete Report')).not.toBeInTheDocument();
+    expect(await screen.findByText(/deleted report/i)).toBeInTheDocument();
+
+    confirmSpy.mockRestore();
+  });
 });

@@ -142,13 +142,6 @@ const blankUser: UserDraft = {
   active: true,
 };
 
-const demoCredentials = [
-  { label: 'Admin', email: 'admin@servicedesk.local', password: 'Admin@12345' },
-  { label: 'Agent', email: 'agent@servicedesk.local', password: 'Agent@12345' },
-  { label: 'Technician', email: 'tech@servicedesk.local', password: 'Tech@12345' },
-  { label: 'Customer', email: 'customer@servicedesk.local', password: 'Customer@12345' },
-];
-
 interface NavItem {
   id: string;
   label: string;
@@ -287,8 +280,8 @@ function HomePage({
   onLoginSuccess: (user: AuthUser) => void;
 }) {
   const [authTab, setAuthTab] = useState<'login' | 'signup'>('login');
-  const [email, setEmail] = useState('admin@servicedesk.local');
-  const [password, setPassword] = useState('Admin@12345');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [organizationName, setOrganizationName] = useState('');
   const [adminName, setAdminName] = useState('');
   const [signupEmail, setSignupEmail] = useState('');
@@ -302,12 +295,6 @@ function HomePage({
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     await performLogin(email, password);
-  };
-
-  const loginWithCredential = async (credential: (typeof demoCredentials)[number]) => {
-    setEmail(credential.email);
-    setPassword(credential.password);
-    await performLogin(credential.email, credential.password);
   };
 
   const submitSignup = async (event: FormEvent<HTMLFormElement>) => {
@@ -355,21 +342,13 @@ function HomePage({
             <>
               <p className="eyebrow">Secure workspace</p>
               <h2>Login to your module</h2>
-              <p className="muted">Secure login with staff accounts and sessions. Demo accounts are ready to try below.</p>
+              <p className="muted">Secure login with your staff account.</p>
               <form className="login-form" onSubmit={(event) => void submit(event)}>
                 <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
                 <label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={8} /></label>
                 {auth.authError && <div className="login-error">{auth.authError}</div>}
                 <button className="primary-button full-width" type="submit" disabled={auth.isAuthenticating}>{auth.isAuthenticating ? 'Logging in…' : 'Login securely'}</button>
               </form>
-              <div className="credential-grid" aria-label="Demo credentials">
-                {demoCredentials.map((credential) => (
-                  <button className="credential-card" type="button" key={credential.email} onClick={() => void loginWithCredential(credential)}>
-                    <strong>{credential.label}</strong>
-                    <span>{credential.email}</span>
-                  </button>
-                ))}
-              </div>
             </>
           ) : (
             <>
@@ -748,7 +727,7 @@ function WorkspaceContent(
       {(activeView === 'myjobs-assigned' || activeView === 'myjobs-estimates' || activeView === 'myjobs-repair') && (
         <MyJobsPanel activeView={activeView} state={state} selectedTechnicianId={selectedTechnicianId} updateWorkItem={updateWorkItem} adjustInventory={adjustInventory} pushToast={pushToast} />
       )}
-      {activeView === 'parts' && <InventoryView state={state} adjustInventory={adjustInventory} />}
+      {activeView === 'parts' && <InventoryView state={state} adjustInventory={adjustInventory} pushToast={pushToast} />}
 
       {activeView === 'invoices-report' && (
         <InvoicesReport
@@ -1127,7 +1106,7 @@ function OrganizationPanel({
 
       {showBulkAdd && (
         <Modal title="Bulk add users" onClose={() => setShowBulkAdd(false)}>
-          <BulkAddUsersForm currentUser={currentUser} onDone={() => setShowBulkAdd(false)} />
+          <BulkAddUsersForm currentUser={currentUser} pushToast={pushToast} onDone={() => setShowBulkAdd(false)} />
         </Modal>
       )}
     </div>
@@ -1175,7 +1154,15 @@ function generateTemporaryPassword(): string {
   return `${Math.random().toString(36).slice(2, 8)}${Math.random().toString(36).slice(2, 6)}Aa1`;
 }
 
-function BulkAddUsersForm({ currentUser, onDone }: { currentUser: AuthUser; onDone: () => void }) {
+function BulkAddUsersForm({
+  currentUser,
+  pushToast,
+  onDone,
+}: {
+  currentUser: AuthUser;
+  pushToast: (message: ReactNode, tone?: ToastTone) => void;
+  onDone: () => void;
+}) {
   const [csvText, setCsvText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [result, setResult] = useState<BulkUserCreationResult | null>(null);
@@ -1226,6 +1213,8 @@ function BulkAddUsersForm({ currentUser, onDone }: { currentUser: AuthUser; onDo
       } else {
         setResult(await userApi.bulkCreate(parsedRows));
       }
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Unable to create users.', 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -1303,6 +1292,7 @@ function BulkAddUsersForm({ currentUser, onDone }: { currentUser: AuthUser; onDo
 function UsersReport({ currentUser, pushToast }: { currentUser: AuthUser; pushToast: (message: ReactNode, tone?: ToastTone) => void }) {
   const [users, setUsers] = useState<ManagedUser[]>(() => (isApiPersistenceEnabled ? [] : loadLocalManagedUsers(currentUser)));
   const [userError, setUserError] = useState<string | null>(null);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(isApiPersistenceEnabled);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const editingUser = editingId ? users.find((managedUser) => managedUser.id === editingId) : undefined;
@@ -1312,7 +1302,10 @@ function UsersReport({ currentUser, pushToast }: { currentUser: AuthUser; pushTo
       setUsers(loadLocalManagedUsers(currentUser));
       return;
     }
-    void userApi.list().then((response) => setUsers(response.users)).catch((error: unknown) => setUserError(error instanceof Error ? error.message : 'Unable to load users.'));
+    void userApi.list()
+      .then((response) => setUsers(response.users))
+      .catch((error: unknown) => setUserError(error instanceof Error ? error.message : 'Unable to load users.'))
+      .finally(() => setIsLoadingUsers(false));
   };
 
   useEffect(() => {
@@ -1320,7 +1313,10 @@ function UsersReport({ currentUser, pushToast }: { currentUser: AuthUser; pushTo
       return;
     }
 
-    void userApi.list().then((response) => setUsers(response.users)).catch((error: unknown) => setUserError(error instanceof Error ? error.message : 'Unable to load users.'));
+    void userApi.list()
+      .then((response) => setUsers(response.users))
+      .catch((error: unknown) => setUserError(error instanceof Error ? error.message : 'Unable to load users.'))
+      .finally(() => setIsLoadingUsers(false));
   }, []);
 
   const toggleUser = async (managedUser: ManagedUser) => {
@@ -1527,16 +1523,20 @@ function UsersReport({ currentUser, pushToast }: { currentUser: AuthUser; pushTo
   return (
     <>
       {userError && <div className="login-error">{userError}</div>}
-      <DataGrid
-        onBulkDelete={(rows) => void bulkDeleteUsers(rows)}
-        bulkEditFields={userBulkEditFields}
-        onBulkEditApply={bulkEditUsers}
-        title="Users report"
-        columns={columns}
-        rows={users}
-        onAddNew={() => setIsCreating(true)}
-        addLabel="New user"
-      />
+      {isLoadingUsers ? (
+        <EmptyState title="Loading users…" body="Fetching the latest staff accounts." />
+      ) : (
+        <DataGrid
+          onBulkDelete={(rows) => void bulkDeleteUsers(rows)}
+          bulkEditFields={userBulkEditFields}
+          onBulkEditApply={bulkEditUsers}
+          title="Users report"
+          columns={columns}
+          rows={users}
+          onAddNew={() => setIsCreating(true)}
+          addLabel="New user"
+        />
+      )}
     </>
   );
 }
@@ -1555,23 +1555,36 @@ function CustomerEditForm({
   onDone: () => void;
 }) {
   const [draft, setDraft] = useState({ name: customer.name, phone: customer.phone, email: customer.email });
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    void updateCustomer(customer.id, draft, actor);
-    pushToast(`Saved changes for ${draft.name}.`);
-    onDone();
+    setError(null);
+    setIsSubmitting(true);
+    try {
+      await updateCustomer(customer.id, draft, actor);
+      pushToast(`Saved changes for ${draft.name}.`);
+      onDone();
+    } catch (submitError) {
+      const message = submitError instanceof Error ? submitError.message : 'Unable to save customer.';
+      setError(message);
+      pushToast(message, 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
     <CreatorFormCard title="Edit customer" eyebrow="Customer master">
-      <form className="creator-form" onSubmit={submit}>
+      <form className="creator-form" onSubmit={(event) => void submit(event)}>
         <label>Name<input required value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
         <label>Phone<input required value={draft.phone} onChange={(event) => setDraft({ ...draft, phone: event.target.value })} /></label>
         <label>Email<input required type="email" value={draft.email} onChange={(event) => setDraft({ ...draft, email: event.target.value })} /></label>
+        {error && <div className="login-error">{error}</div>}
         <div className="card-actions">
-          <button className="primary-button" type="submit">Save changes</button>
-          <button className="secondary-button" type="button" onClick={onDone}>Cancel</button>
+          <button className="primary-button" type="submit" disabled={isSubmitting}>{isSubmitting ? 'Saving…' : 'Save changes'}</button>
+          <button className="secondary-button" type="button" onClick={onDone} disabled={isSubmitting}>Cancel</button>
         </div>
       </form>
     </CreatorFormCard>
@@ -1599,6 +1612,8 @@ function NewCustomerForm({
       await addCustomer(draft, actor);
       pushToast(`Added customer ${draft.name}.`);
       onDone();
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Unable to add customer.', 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -1638,7 +1653,7 @@ function CustomersPanel({
   const [isCreating, setIsCreating] = useState(false);
   const editingCustomer = editingId ? state.customers.find((customer) => customer.id === editingId) : undefined;
 
-  const removeCustomer = (customer: Customer) => {
+  const removeCustomer = async (customer: Customer) => {
     const usage = state.workItems.filter((item) => item.customerId === customer.id).length;
     if (usage > 0) {
       pushToast(`Cannot delete ${customer.name} — they have ${usage} work item${usage === 1 ? '' : 's'} on file.`, 'error');
@@ -1647,11 +1662,15 @@ function CustomersPanel({
     if (!window.confirm(`Delete customer ${customer.name}? This cannot be undone.`)) {
       return;
     }
-    void deleteCustomer(customer.id);
-    pushToast(`Deleted customer ${customer.name}.`);
+    try {
+      await deleteCustomer(customer.id);
+      pushToast(`Deleted customer ${customer.name}.`);
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Unable to delete customer.', 'error');
+    }
   };
 
-  const bulkDeleteCustomers = (customers: Customer[]) => {
+  const bulkDeleteCustomers = async (customers: Customer[]) => {
     const blocked = customers.filter((customer) => state.workItems.some((item) => item.customerId === customer.id));
     const deletable = customers.filter((customer) => !state.workItems.some((item) => item.customerId === customer.id));
     if (blocked.length) {
@@ -1663,8 +1682,12 @@ function CustomersPanel({
     if (!window.confirm(`Delete ${deletable.length} customer${deletable.length === 1 ? '' : 's'}? This cannot be undone.`)) {
       return;
     }
-    deletable.forEach((customer) => void deleteCustomer(customer.id));
-    pushToast(`Deleted ${deletable.length} customer${deletable.length === 1 ? '' : 's'}.`);
+    try {
+      await Promise.all(deletable.map((customer) => deleteCustomer(customer.id)));
+      pushToast(`Deleted ${deletable.length} customer${deletable.length === 1 ? '' : 's'}.`);
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Unable to delete some customers.', 'error');
+    }
   };
 
   const customerBulkEditFields: BulkEditField<Customer>[] = [
@@ -1673,9 +1696,13 @@ function CustomersPanel({
     { key: 'email', label: 'Email', type: 'text', apply: (value) => ({ email: value }) },
   ];
 
-  const bulkEditCustomers = (customers: Customer[], patch: Partial<Customer>) => {
-    customers.forEach((customer) => void updateCustomer(customer.id, { name: customer.name, phone: customer.phone, email: customer.email, ...patch }, currentUser.name));
-    pushToast(`Updated ${customers.length} customer${customers.length === 1 ? '' : 's'}.`);
+  const bulkEditCustomers = async (customers: Customer[], patch: Partial<Customer>) => {
+    try {
+      await Promise.all(customers.map((customer) => updateCustomer(customer.id, { name: customer.name, phone: customer.phone, email: customer.email, ...patch }, currentUser.name)));
+      pushToast(`Updated ${customers.length} customer${customers.length === 1 ? '' : 's'}.`);
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Unable to update some customers.', 'error');
+    }
   };
 
   if (isCreating) {
@@ -1714,7 +1741,7 @@ function CustomersPanel({
       render: (customer) => (
         <div className="row-actions" onClick={(event) => event.stopPropagation()}>
           <button type="button" className="icon-toolbar-button" aria-label={`Edit ${customer.name}`} onClick={() => setEditingId(customer.id)}><Pencil aria-hidden="true" size={14} /></button>
-          <button type="button" className="icon-toolbar-button is-danger" aria-label={`Delete ${customer.name}`} onClick={() => removeCustomer(customer)}><Trash2 aria-hidden="true" size={14} /></button>
+          <button type="button" className="icon-toolbar-button is-danger" aria-label={`Delete ${customer.name}`} onClick={() => void removeCustomer(customer)}><Trash2 aria-hidden="true" size={14} /></button>
         </div>
       ),
     },
@@ -1814,7 +1841,7 @@ function TechniciansPanel({
   const [isCreating, setIsCreating] = useState(false);
   const editingTechnician = editingId ? state.technicians.find((technician) => technician.id === editingId) : undefined;
 
-  const removeTechnician = (technician: Technician) => {
+  const removeTechnician = async (technician: Technician) => {
     const usage = state.workItems.filter((item) => item.assignedTechnicianId === technician.id).length;
     if (usage > 0) {
       pushToast(`Cannot delete ${technician.name} — assigned to ${usage} work item${usage === 1 ? '' : 's'}.`, 'error');
@@ -1823,11 +1850,15 @@ function TechniciansPanel({
     if (!window.confirm(`Delete technician ${technician.name}? This cannot be undone.`)) {
       return;
     }
-    void deleteTechnician(technician.id);
-    pushToast(`Deleted technician ${technician.name}.`);
+    try {
+      await deleteTechnician(technician.id);
+      pushToast(`Deleted technician ${technician.name}.`);
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Unable to delete technician.', 'error');
+    }
   };
 
-  const bulkDeleteTechnicians = (candidates: Technician[]) => {
+  const bulkDeleteTechnicians = async (candidates: Technician[]) => {
     const blocked = candidates.filter((technician) => state.workItems.some((item) => item.assignedTechnicianId === technician.id));
     const deletable = candidates.filter((technician) => !state.workItems.some((item) => item.assignedTechnicianId === technician.id));
     if (blocked.length) {
@@ -1839,8 +1870,12 @@ function TechniciansPanel({
     if (!window.confirm(`Delete ${deletable.length} technician${deletable.length === 1 ? '' : 's'}? This cannot be undone.`)) {
       return;
     }
-    deletable.forEach((technician) => void deleteTechnician(technician.id));
-    pushToast(`Deleted ${deletable.length} technician${deletable.length === 1 ? '' : 's'}.`);
+    try {
+      await Promise.all(deletable.map((technician) => deleteTechnician(technician.id)));
+      pushToast(`Deleted ${deletable.length} technician${deletable.length === 1 ? '' : 's'}.`);
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Unable to delete some technicians.', 'error');
+    }
   };
 
   const technicianBulkEditFields: BulkEditField<Technician>[] = [
@@ -1848,9 +1883,13 @@ function TechniciansPanel({
     { key: 'email', label: 'Email', type: 'text', apply: (value) => ({ email: value }) },
   ];
 
-  const bulkEditTechnicians = (technicians: Technician[], patch: Partial<Technician>) => {
-    technicians.forEach((technician) => void updateTechnician(technician.id, { name: technician.name, email: technician.email, specialties: technician.specialties, ...patch }, currentUser.name));
-    pushToast(`Updated ${technicians.length} technician${technicians.length === 1 ? '' : 's'}.`);
+  const bulkEditTechnicians = async (technicians: Technician[], patch: Partial<Technician>) => {
+    try {
+      await Promise.all(technicians.map((technician) => updateTechnician(technician.id, { name: technician.name, email: technician.email, specialties: technician.specialties, ...patch }, currentUser.name)));
+      pushToast(`Updated ${technicians.length} technician${technicians.length === 1 ? '' : 's'}.`);
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Unable to update some technicians.', 'error');
+    }
   };
 
   if (isCreating) {
@@ -1894,7 +1933,7 @@ function TechniciansPanel({
       render: (tech) => (
         <div className="row-actions" onClick={(event) => event.stopPropagation()}>
           <button type="button" className="icon-toolbar-button" aria-label={`Edit ${tech.name}`} onClick={() => setEditingId(tech.id)}><Pencil aria-hidden="true" size={14} /></button>
-          <button type="button" className="icon-toolbar-button is-danger" aria-label={`Delete ${tech.name}`} onClick={() => removeTechnician(tech)}><Trash2 aria-hidden="true" size={14} /></button>
+          <button type="button" className="icon-toolbar-button is-danger" aria-label={`Delete ${tech.name}`} onClick={() => void removeTechnician(tech)}><Trash2 aria-hidden="true" size={14} /></button>
         </div>
       ),
     },
@@ -1940,6 +1979,8 @@ function NewInvoiceForm({
       pushToast(`Invoice issued for ${currencyFormatter.format(invoiceTotal)}.`);
       setInvoiceDraft(blankInvoiceDraft(state.workItems[0]));
       onDone();
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Unable to issue invoice.', 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -1992,8 +2033,8 @@ function InvoicesReport({
     pushToast(`Payment recorded for ${invoiceId} via ${payment.method}.`);
   };
 
-  const changeInvoiceStatus = (invoiceId: string, status: InvoiceStatus) => {
-    void updateInvoiceStatus(invoiceId, status, currentUser.name);
+  const changeInvoiceStatus = async (invoiceId: string, status: InvoiceStatus) => {
+    await updateInvoiceStatus(invoiceId, status, currentUser.name);
   };
 
   if (isCreating) {
@@ -2045,6 +2086,8 @@ function NewWorkItemForm({
       pushToast(<>Created work item for <strong>{draft.customerName}</strong> · <strong>{draft.deviceModel}</strong>.</>);
       setDraft(blankDraft);
       onDone();
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Unable to create work item.', 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -2100,29 +2143,41 @@ function WorkItemsSection({
   const list = subView === 'walkins' ? state.workItems.filter((item) => item.source === 'Walk-in') : state.workItems;
   const selected = selectedId ? state.workItems.find((item) => item.id === selectedId) : undefined;
 
-  const cancelItem = (workItemId: string) => {
+  const cancelItem = async (workItemId: string) => {
     if (!window.confirm('Cancel this work item? The customer will be notified and this cannot be undone.')) {
       return;
     }
 
-    cancelWorkItem(workItemId, actorRole);
-    pushToast('Work item cancelled.');
+    try {
+      await cancelWorkItem(workItemId, actorRole);
+      pushToast('Work item cancelled.');
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Unable to cancel work item.', 'error');
+    }
   };
 
-  const removeWorkItem = (item: WorkItem) => {
+  const removeWorkItem = async (item: WorkItem) => {
     if (!window.confirm(`Delete work item ${item.id} (${item.deviceModel})? This also removes its invoices and cannot be undone.`)) {
       return;
     }
-    void deleteWorkItem(item.id);
-    pushToast(`Deleted work item ${item.id}.`);
+    try {
+      await deleteWorkItem(item.id);
+      pushToast(`Deleted work item ${item.id}.`);
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Unable to delete work item.', 'error');
+    }
   };
 
-  const bulkDeleteWorkItems = (items: WorkItem[]) => {
+  const bulkDeleteWorkItems = async (items: WorkItem[]) => {
     if (!window.confirm(`Delete ${items.length} work item${items.length === 1 ? '' : 's'}? This also removes their invoices and cannot be undone.`)) {
       return;
     }
-    items.forEach((item) => void deleteWorkItem(item.id));
-    pushToast(`Deleted ${items.length} work item${items.length === 1 ? '' : 's'}.`);
+    try {
+      await Promise.all(items.map((item) => deleteWorkItem(item.id)));
+      pushToast(`Deleted ${items.length} work item${items.length === 1 ? '' : 's'}.`);
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Unable to delete some work items.', 'error');
+    }
   };
 
   const workItemBulkEditFields: BulkEditField<WorkItem>[] = [
@@ -2137,9 +2192,13 @@ function WorkItemsSection({
     },
   ];
 
-  const bulkEditWorkItems = (items: WorkItem[], patch: Partial<WorkItem>) => {
-    items.forEach((item) => updateWorkItem(item.id, patch, actorRole, 'Bulk update.'));
-    pushToast(`Updated ${items.length} work item${items.length === 1 ? '' : 's'}.`);
+  const bulkEditWorkItems = async (items: WorkItem[], patch: Partial<WorkItem>) => {
+    try {
+      await Promise.all(items.map((item) => updateWorkItem(item.id, patch, actorRole, 'Bulk update.')));
+      pushToast(`Updated ${items.length} work item${items.length === 1 ? '' : 's'}.`);
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Unable to update some work items.', 'error');
+    }
   };
 
   const columns: DataGridColumn<WorkItem>[] = [
@@ -2150,7 +2209,7 @@ function WorkItemsSection({
       render: (item) => (
         <div className="row-actions" onClick={(event) => event.stopPropagation()}>
           <button type="button" className="icon-toolbar-button" aria-label={`Edit ${item.id}`} onClick={() => setSelectedId(item.id)}><Pencil aria-hidden="true" size={14} /></button>
-          <button type="button" className="icon-toolbar-button is-danger" aria-label={`Delete ${item.id}`} onClick={() => removeWorkItem(item)}><Trash2 aria-hidden="true" size={14} /></button>
+          <button type="button" className="icon-toolbar-button is-danger" aria-label={`Delete ${item.id}`} onClick={() => void removeWorkItem(item)}><Trash2 aria-hidden="true" size={14} /></button>
         </div>
       ),
     },
@@ -2184,11 +2243,30 @@ function WorkItemsSection({
       detail={selected && (
         <WorkItemCard item={selected} technicians={state.technicians}>
           <div className="card-actions">
-            <select aria-label="Reassign technician" value={selected.assignedTechnicianId} onChange={(event) => updateWorkItem(selected.id, { assignedTechnicianId: event.target.value, status: 'Assigned' }, actorRole, `${actorRole} reassigned the work item.`)}>
+            <select
+              aria-label="Reassign technician"
+              value={selected.assignedTechnicianId}
+              onChange={(event) => {
+                const technicianId = event.target.value;
+                void updateWorkItem(selected.id, { assignedTechnicianId: technicianId, status: 'Assigned' }, actorRole, `${actorRole} reassigned the work item.`)
+                  .then(() => pushToast('Technician reassigned.'))
+                  .catch((error: unknown) => pushToast(error instanceof Error ? error.message : 'Unable to reassign technician.', 'error'));
+              }}
+            >
               {state.technicians.map((tech) => <option value={tech.id} key={tech.id}>{tech.name}</option>)}
             </select>
-            <button type="button" className="secondary-dark-button" onClick={() => { notifyCustomerNow(selected.id); pushToast('Sent a status update to the customer (mock SMS).'); }}>Notify customer</button>
-            {!terminalStatuses.includes(selected.status) && <button type="button" className="danger-button" onClick={() => cancelItem(selected.id)}>Cancel</button>}
+            <button
+              type="button"
+              className="secondary-dark-button"
+              onClick={() => {
+                void notifyCustomerNow(selected.id)
+                  .then(() => pushToast('Sent a status update to the customer (mock SMS).'))
+                  .catch((error: unknown) => pushToast(error instanceof Error ? error.message : 'Unable to notify customer.', 'error'));
+              }}
+            >
+              Notify customer
+            </button>
+            {!terminalStatuses.includes(selected.status) && <button type="button" className="danger-button" onClick={() => void cancelItem(selected.id)}>Cancel</button>}
           </div>
         </WorkItemCard>
       )}
@@ -2206,7 +2284,7 @@ function KanbanBoard({
   pushToast: (message: ReactNode, tone?: ToastTone) => void;
 }) {
   const columns = statusFlow;
-  const advance = (item: WorkItem) => {
+  const advance = async (item: WorkItem) => {
     const next = getNextStatuses(item.status)[1];
     if (!next) {
       return;
@@ -2217,8 +2295,12 @@ function KanbanBoard({
       return;
     }
 
-    updateWorkItem(item.id, { status: next }, 'Agent', `Moved to ${next} from the board.`);
-    pushToast(`${item.id} moved to ${next}.`);
+    try {
+      await updateWorkItem(item.id, { status: next }, 'Agent', `Moved to ${next} from the board.`);
+      pushToast(`${item.id} moved to ${next}.`);
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Unable to move work item.', 'error');
+    }
   };
 
   return (
@@ -2233,7 +2315,7 @@ function KanbanBoard({
                 <strong>{item.deviceModel}</strong>
                 <span>{item.id} · {item.customerName}</span>
                 {getNextStatuses(item.status)[1] && (
-                  <button type="button" className="secondary-dark-button" onClick={() => advance(item)}>
+                  <button type="button" className="secondary-dark-button" onClick={() => void advance(item)}>
                     Advance to {getNextStatuses(item.status)[1]}
                   </button>
                 )}
@@ -2331,17 +2413,23 @@ function TechnicianWorkItem({ item, parts, technicians, updateWorkItem, adjustIn
         `Technician updated status to ${status}.`,
       );
       pushToast(`${item.id} updated — status set to ${status}.`);
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Unable to save technician update.', 'error');
     } finally {
       setIsSaving(false);
     }
   };
 
-  const consumePart = () => {
+  const consumePart = async () => {
     if (!partSku) return;
     const part = parts.find((candidate) => candidate.sku === partSku);
-    adjustInventory(partSku, -1);
-    updateWorkItem(item.id, { partsRequired: Array.from(new Set([...item.partsRequired, partSku])) }, 'Technician', `Technician consumed inventory part ${partSku}.`);
-    pushToast(`Used 1× ${part?.name ?? partSku} on ${item.id}.`);
+    try {
+      await adjustInventory(partSku, -1);
+      await updateWorkItem(item.id, { partsRequired: Array.from(new Set([...item.partsRequired, partSku])) }, 'Technician', `Technician consumed inventory part ${partSku}.`);
+      pushToast(`Used 1× ${part?.name ?? partSku} on ${item.id}.`);
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Unable to record part usage.', 'error');
+    }
   };
 
   return (
@@ -2360,7 +2448,7 @@ function TechnicianWorkItem({ item, parts, technicians, updateWorkItem, adjustIn
       <p className="cost-breakdown"><span>Total estimate <strong>{currencyFormatter.format(estimatedPrice)}</strong></span></p>
       <div className="form-row"><label>Status<select value={status} onChange={(event) => setStatus(event.target.value as WorkItemStatus)}>{getNextStatuses(item.status).map((value) => <option key={value}>{value}</option>)}</select></label><label>Part<select value={partSku} onChange={(event) => setPartSku(event.target.value)}>{parts.map((part) => <option value={part.sku} key={part.sku}>{part.name} ({part.quantity})</option>)}</select></label></div>
       {blockedByMissingAnalysis && <p className="workflow-warning">Add a diagnosis/analysis note before this status can be saved.</p>}
-      <div className="card-actions"><button type="button" className="primary-button" onClick={() => void save()} disabled={blockedByMissingAnalysis || isSaving}>{isSaving ? 'Saving…' : 'Save technician update'}</button><button type="button" className="secondary-dark-button" onClick={consumePart}>Use part</button></div>
+      <div className="card-actions"><button type="button" className="primary-button" onClick={() => void save()} disabled={blockedByMissingAnalysis || isSaving}>{isSaving ? 'Saving…' : 'Save technician update'}</button><button type="button" className="secondary-dark-button" onClick={() => void consumePart()}>Use part</button></div>
     </article>
   );
 }
@@ -2389,6 +2477,8 @@ function RepairsPanel({
     try {
       await approveEstimate(workItemId);
       pushToast('Estimate approved — the technician has been notified.');
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Unable to approve estimate.', 'error');
     } finally {
       setApprovingId(null);
     }
@@ -2513,37 +2603,59 @@ function NewPartForm({
   onDone?: () => void;
 }) {
   const [part, setPart] = useState<InventoryPart>(editingPart ?? blankPart);
-  const submit = (event: FormEvent<HTMLFormElement>) => {
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    addInventoryPart({ ...part, sku: (editingPart ? editingPart.sku : part.sku.toUpperCase()), compatibleWith: [part.compatibleWith[0] ?? 'Laptop'] }, actor);
-    pushToast(`Saved part ${editingPart ? editingPart.sku : part.sku.toUpperCase() || part.name}.`);
-    if (editingPart) {
-      onDone?.();
-    } else {
-      setPart(blankPart);
+    setError(null);
+    setIsSubmitting(true);
+    try {
+      await addInventoryPart({ ...part, sku: (editingPart ? editingPart.sku : part.sku.toUpperCase()), compatibleWith: [part.compatibleWith[0] ?? 'Laptop'] }, actor);
+      pushToast(`Saved part ${editingPart ? editingPart.sku : part.sku.toUpperCase() || part.name}.`);
+      if (editingPart) {
+        onDone?.();
+      } else {
+        setPart(blankPart);
+      }
+    } catch (submitError) {
+      const message = submitError instanceof Error ? submitError.message : 'Unable to save part.';
+      setError(message);
+      pushToast(message, 'error');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const confirmReset = () => {
+  const confirmReset = async () => {
     if (!window.confirm('Reset all demo data? This permanently wipes every local work item, invoice, and inventory change.')) {
       return;
     }
 
-    reset();
-    pushToast('Demo data reset.');
+    setIsResetting(true);
+    try {
+      await reset();
+      pushToast('Demo data reset.');
+    } catch (resetError) {
+      pushToast(resetError instanceof Error ? resetError.message : 'Unable to reset demo data.', 'error');
+    } finally {
+      setIsResetting(false);
+    }
   };
 
   return (
     <CreatorFormCard title={editingPart ? 'Edit part' : 'Part form'} eyebrow="Inventory">
-      <form className="creator-form" onSubmit={submit}>
+      <form className="creator-form" onSubmit={(event) => void submit(event)}>
         <label>SKU<input required disabled={!!editingPart} value={part.sku} onChange={(event) => setPart({ ...part, sku: event.target.value })} placeholder="BAT-MBP-2024" /></label>
         <label>Name<input required value={part.name} onChange={(event) => setPart({ ...part, name: event.target.value })} placeholder="MacBook Battery" /></label>
         <div className="form-row"><label>Device<select value={part.compatibleWith[0]} onChange={(event) => setPart({ ...part, compatibleWith: [event.target.value as DeviceType] })}>{deviceTypes.map((type) => <option key={type}>{type}</option>)}</select></label><label>Quantity<input type="number" value={part.quantity} onChange={(event) => setPart({ ...part, quantity: Number(event.target.value) })} /></label></div>
         <div className="form-row"><label>Reorder at<input type="number" value={part.reorderLevel} onChange={(event) => setPart({ ...part, reorderLevel: Number(event.target.value) })} /></label><label>Cost<input type="number" value={part.unitCost} onChange={(event) => setPart({ ...part, unitCost: Number(event.target.value) })} /></label></div>
+        {error && <div className="login-error">{error}</div>}
         <div className="card-actions">
-          <button className="primary-button" type="submit">{editingPart ? 'Save changes' : 'Add / update part'}</button>
-          {editingPart && onDone && <button className="secondary-button" type="button" onClick={onDone}>Cancel</button>}
-          {!editingPart && canReset && <button className="secondary-dark-button" type="button" onClick={confirmReset}>Reset demo data</button>}
+          <button className="primary-button" type="submit" disabled={isSubmitting}>{isSubmitting ? 'Saving…' : editingPart ? 'Save changes' : 'Add / update part'}</button>
+          {editingPart && onDone && <button className="secondary-button" type="button" onClick={onDone} disabled={isSubmitting}>Cancel</button>}
+          {!editingPart && canReset && <button className="secondary-dark-button" type="button" onClick={() => void confirmReset()} disabled={isResetting}>{isResetting ? 'Resetting…' : 'Reset demo data'}</button>}
         </div>
       </form>
     </CreatorFormCard>
@@ -2577,7 +2689,7 @@ function InventoryReport({
   const editingPart = editingSku ? state.inventoryParts.find((part) => part.sku === editingSku) : undefined;
   const adjustingPart = adjustingSku ? state.inventoryParts.find((part) => part.sku === adjustingSku) : undefined;
 
-  const deletePart = (part: InventoryPart) => {
+  const deletePart = async (part: InventoryPart) => {
     const usage = partUsageCount(state, part.sku);
     if (usage > 0) {
       pushToast(`Cannot delete ${part.name} — it is used by ${usage} work item${usage === 1 ? '' : 's'}.`, 'error');
@@ -2586,11 +2698,15 @@ function InventoryReport({
     if (!window.confirm(`Delete part ${part.name} (${part.sku})? This cannot be undone.`)) {
       return;
     }
-    void deleteInventoryPart(part.sku);
-    pushToast(`Deleted part ${part.name}.`);
+    try {
+      await deleteInventoryPart(part.sku);
+      pushToast(`Deleted part ${part.name}.`);
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Unable to delete part.', 'error');
+    }
   };
 
-  const bulkDeleteParts = (parts: (InventoryPart & { id: string })[]) => {
+  const bulkDeleteParts = async (parts: (InventoryPart & { id: string })[]) => {
     const blocked = parts.filter((part) => partUsageCount(state, part.sku) > 0);
     const deletable = parts.filter((part) => partUsageCount(state, part.sku) === 0);
     if (blocked.length) {
@@ -2602,8 +2718,12 @@ function InventoryReport({
     if (!window.confirm(`Delete ${deletable.length} part${deletable.length === 1 ? '' : 's'}? This cannot be undone.`)) {
       return;
     }
-    deletable.forEach((part) => void deleteInventoryPart(part.sku));
-    pushToast(`Deleted ${deletable.length} part${deletable.length === 1 ? '' : 's'}.`);
+    try {
+      await Promise.all(deletable.map((part) => deleteInventoryPart(part.sku)));
+      pushToast(`Deleted ${deletable.length} part${deletable.length === 1 ? '' : 's'}.`);
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Unable to delete some parts.', 'error');
+    }
   };
 
   const partBulkEditFields: BulkEditField<InventoryPart & { id: string }>[] = [
@@ -2613,9 +2733,13 @@ function InventoryReport({
     { key: 'unitCost', label: 'Cost', type: 'number', apply: (value) => ({ unitCost: Math.max(0, Number(value) || 0) }) },
   ];
 
-  const bulkEditParts = (parts: (InventoryPart & { id: string })[], patch: Partial<InventoryPart>) => {
-    parts.forEach((part) => void addInventoryPart({ ...part, ...patch }, currentUser.name));
-    pushToast(`Updated ${parts.length} part${parts.length === 1 ? '' : 's'}.`);
+  const bulkEditParts = async (parts: (InventoryPart & { id: string })[], patch: Partial<InventoryPart>) => {
+    try {
+      await Promise.all(parts.map((part) => addInventoryPart({ ...part, ...patch }, currentUser.name)));
+      pushToast(`Updated ${parts.length} part${parts.length === 1 ? '' : 's'}.`);
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Unable to update some parts.', 'error');
+    }
   };
 
   if (isCreating) {
@@ -2670,7 +2794,7 @@ function InventoryReport({
       render: (part) => (
         <div className="row-actions" onClick={(event) => event.stopPropagation()}>
           <button type="button" className="icon-toolbar-button" aria-label={`Edit ${part.name}`} onClick={() => setEditingSku(part.sku)}><Pencil aria-hidden="true" size={14} /></button>
-          <button type="button" className="icon-toolbar-button is-danger" aria-label={`Delete ${part.name}`} onClick={() => deletePart(part)}><Trash2 aria-hidden="true" size={14} /></button>
+          <button type="button" className="icon-toolbar-button is-danger" aria-label={`Delete ${part.name}`} onClick={() => void deletePart(part)}><Trash2 aria-hidden="true" size={14} /></button>
         </div>
       ),
     },
@@ -2695,7 +2819,21 @@ function InventoryReport({
   );
 }
 
-function InventoryView({ state, adjustInventory }: { state: DeskActions['state']; adjustInventory: DeskActions['adjustInventory'] }) {
+function InventoryView({
+  state,
+  adjustInventory,
+  pushToast,
+}: {
+  state: DeskActions['state'];
+  adjustInventory: DeskActions['adjustInventory'];
+  pushToast: (message: ReactNode, tone?: ToastTone) => void;
+}) {
+  const adjust = (sku: string, delta: number) => {
+    adjustInventory(sku, delta).catch((error: unknown) => {
+      pushToast(error instanceof Error ? error.message : 'Unable to adjust stock.', 'error');
+    });
+  };
+
   const columns: DataGridColumn<InventoryPart & { id: string }>[] = [
     { key: 'name', label: 'Name', render: (part) => <strong>{part.name}</strong>, sortValue: (part) => part.name, searchValue: (part) => part.name },
     { key: 'sku', label: 'SKU', render: (part) => part.sku, sortValue: (part) => part.sku, searchValue: (part) => part.sku },
@@ -2708,8 +2846,8 @@ function InventoryView({ state, adjustInventory }: { state: DeskActions['state']
       label: 'Adjust',
       render: (part) => (
         <div className="stepper" onClick={(event) => event.stopPropagation()}>
-          <button type="button" aria-label={`Decrease ${part.name} quantity`} onClick={() => adjustInventory(part.sku, -1)}><Minus aria-hidden="true" size={16} /></button>
-          <button type="button" aria-label={`Increase ${part.name} quantity`} onClick={() => adjustInventory(part.sku, 1)}><Plus aria-hidden="true" size={16} /></button>
+          <button type="button" aria-label={`Decrease ${part.name} quantity`} onClick={() => adjust(part.sku, -1)}><Minus aria-hidden="true" size={16} /></button>
+          <button type="button" aria-label={`Increase ${part.name} quantity`} onClick={() => adjust(part.sku, 1)}><Plus aria-hidden="true" size={16} /></button>
         </div>
       ),
     },
@@ -2721,10 +2859,12 @@ function InventoryView({ state, adjustInventory }: { state: DeskActions['state']
 function RecordPaymentModal({
   invoice,
   recordPayment,
+  pushToast,
   onClose,
 }: {
   invoice: Invoice;
   recordPayment: (invoiceId: string, payment: InvoicePaymentDraft) => Promise<void>;
+  pushToast: (message: ReactNode, tone?: ToastTone) => void;
   onClose: () => void;
 }) {
   const [method, setMethod] = useState<PaymentMethod>('Card (Test Mode)');
@@ -2736,6 +2876,8 @@ function RecordPaymentModal({
     try {
       await recordPayment(invoice.id, { method, reference });
       onClose();
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Unable to record payment.', 'error');
     } finally {
       setIsRecording(false);
     }
@@ -2764,7 +2906,7 @@ function InvoiceList({
   onAddNew,
 }: {
   invoices: Invoice[];
-  updateInvoiceStatus: (invoiceId: string, status: InvoiceStatus) => void;
+  updateInvoiceStatus: (invoiceId: string, status: InvoiceStatus) => Promise<void>;
   recordPayment: (invoiceId: string, payment: InvoicePaymentDraft) => Promise<void>;
   deleteInvoice: DeskActions['deleteInvoice'];
   pushToast: (message: ReactNode, tone?: ToastTone) => void;
@@ -2773,37 +2915,53 @@ function InvoiceList({
   const [payingId, setPayingId] = useState<string | null>(null);
   const payingInvoice = payingId ? invoices.find((invoice) => invoice.id === payingId) : undefined;
 
-  const voidInvoice = (invoice: Invoice) => {
+  const voidInvoice = async (invoice: Invoice) => {
     if (!window.confirm(`Void invoice ${invoice.id}? This cannot be undone.`)) {
       return;
     }
-    void updateInvoiceStatus(invoice.id, 'Void');
-    pushToast(`Invoice ${invoice.id} voided.`);
+    try {
+      await updateInvoiceStatus(invoice.id, 'Void');
+      pushToast(`Invoice ${invoice.id} voided.`);
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Unable to void invoice.', 'error');
+    }
   };
 
-  const removeInvoice = (invoice: Invoice) => {
+  const removeInvoice = async (invoice: Invoice) => {
     if (!window.confirm(`Delete invoice ${invoice.id}? This cannot be undone.`)) {
       return;
     }
-    void deleteInvoice(invoice.id);
-    pushToast(`Deleted invoice ${invoice.id}.`);
+    try {
+      await deleteInvoice(invoice.id);
+      pushToast(`Deleted invoice ${invoice.id}.`);
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Unable to delete invoice.', 'error');
+    }
   };
 
-  const bulkDeleteInvoices = (selected: Invoice[]) => {
+  const bulkDeleteInvoices = async (selected: Invoice[]) => {
     if (!window.confirm(`Delete ${selected.length} invoice${selected.length === 1 ? '' : 's'}? This cannot be undone.`)) {
       return;
     }
-    selected.forEach((invoice) => void deleteInvoice(invoice.id));
-    pushToast(`Deleted ${selected.length} invoice${selected.length === 1 ? '' : 's'}.`);
+    try {
+      await Promise.all(selected.map((invoice) => deleteInvoice(invoice.id)));
+      pushToast(`Deleted ${selected.length} invoice${selected.length === 1 ? '' : 's'}.`);
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Unable to delete some invoices.', 'error');
+    }
   };
 
   const invoiceBulkEditFields: BulkEditField<Invoice>[] = [
     { key: 'status', label: 'Status', type: 'select', options: ['Issued', 'Void'], apply: (value) => ({ status: value as InvoiceStatus }) },
   ];
 
-  const bulkEditInvoices = (selected: Invoice[], patch: Partial<Invoice>) => {
-    selected.forEach((invoice) => updateInvoiceStatus(invoice.id, (patch.status ?? invoice.status)));
-    pushToast(`Updated ${selected.length} invoice${selected.length === 1 ? '' : 's'}.`);
+  const bulkEditInvoices = async (selected: Invoice[], patch: Partial<Invoice>) => {
+    try {
+      await Promise.all(selected.map((invoice) => updateInvoiceStatus(invoice.id, (patch.status ?? invoice.status))));
+      pushToast(`Updated ${selected.length} invoice${selected.length === 1 ? '' : 's'}.`);
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Unable to update some invoices.', 'error');
+    }
   };
 
   const columns: DataGridColumn<Invoice>[] = [
@@ -2822,10 +2980,10 @@ function InvoiceList({
           {invoice.status === 'Issued' && (
             <>
               <button type="button" className="icon-toolbar-button" aria-label={`Record payment for ${invoice.id}`} onClick={() => setPayingId(invoice.id)}><CreditCard aria-hidden="true" size={14} /></button>
-              <button type="button" className="icon-toolbar-button is-danger" aria-label={`Void ${invoice.id}`} onClick={() => voidInvoice(invoice)}><XCircle aria-hidden="true" size={14} /></button>
+              <button type="button" className="icon-toolbar-button is-danger" aria-label={`Void ${invoice.id}`} onClick={() => void voidInvoice(invoice)}><XCircle aria-hidden="true" size={14} /></button>
             </>
           )}
-          <button type="button" className="icon-toolbar-button is-danger" aria-label={`Delete ${invoice.id}`} onClick={() => removeInvoice(invoice)}><Trash2 aria-hidden="true" size={14} /></button>
+          <button type="button" className="icon-toolbar-button is-danger" aria-label={`Delete ${invoice.id}`} onClick={() => void removeInvoice(invoice)}><Trash2 aria-hidden="true" size={14} /></button>
         </div>
       ),
     },
@@ -2843,7 +3001,7 @@ function InvoiceList({
         bulkEditFields={invoiceBulkEditFields}
         onBulkEditApply={bulkEditInvoices}
       />
-      {payingInvoice && <RecordPaymentModal invoice={payingInvoice} recordPayment={recordPayment} onClose={() => setPayingId(null)} />}
+      {payingInvoice && <RecordPaymentModal invoice={payingInvoice} recordPayment={recordPayment} pushToast={pushToast} onClose={() => setPayingId(null)} />}
     </>
   );
 }
@@ -2963,8 +3121,8 @@ function ReportBuilder({
 }: {
   state: DeskActions['state'];
   savedReports: SavedReport[];
-  createSavedReport: (draft: SavedReportDraft) => void;
-  deleteSavedReport: (id: string) => void;
+  createSavedReport: (draft: SavedReportDraft) => Promise<void>;
+  deleteSavedReport: (id: string) => Promise<void>;
   pushToast: (message: ReactNode, tone?: ToastTone) => void;
 }) {
   const [entity, setEntity] = useState<ReportEntity>('workItems');
@@ -3006,16 +3164,32 @@ function ReportBuilder({
     setFilters(report.filters.length ? report.filters : [{ field: '', value: '' }]);
   };
 
-  const saveReport = () => {
+  const saveReport = async () => {
     if (!reportName.trim() || !columns.length) {
       pushToast('Give the report a name and at least one column.', 'error');
       return;
     }
 
-    createSavedReport({ name: reportName, entity, columns, filters: activeFilters });
-    pushToast(`Saved report "${reportName}".`);
-    setReportName('');
-    setShowSave(false);
+    try {
+      await createSavedReport({ name: reportName, entity, columns, filters: activeFilters });
+      pushToast(`Saved report "${reportName}".`);
+      setReportName('');
+      setShowSave(false);
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Unable to save report.', 'error');
+    }
+  };
+
+  const removeSavedReport = async (report: SavedReport) => {
+    if (!window.confirm(`Delete saved report "${report.name}"? This cannot be undone.`)) {
+      return;
+    }
+    try {
+      await deleteSavedReport(report.id);
+      pushToast(`Deleted report "${report.name}".`);
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Unable to delete report.', 'error');
+    }
   };
 
   return (
@@ -3056,7 +3230,7 @@ function ReportBuilder({
             {showSave && (
               <>
                 <input value={reportName} onChange={(event) => setReportName(event.target.value)} placeholder="Report name, e.g. Overdue invoices" />
-                <button type="button" className="primary-button" onClick={saveReport}>Save</button>
+                <button type="button" className="primary-button" onClick={() => void saveReport()}>Save</button>
               </>
             )}
           </div>
@@ -3073,7 +3247,7 @@ function ReportBuilder({
               <div><strong>{report.name}</strong><span>{reportEntityLabels[report.entity]} · {report.columns.length} columns</span></div>
               <div className="card-actions">
                 <button type="button" className="secondary-dark-button" onClick={() => runSavedReport(report)}>Run</button>
-                <button type="button" className="danger-button" onClick={() => deleteSavedReport(report.id)}>Delete</button>
+                <button type="button" className="danger-button" onClick={() => void removeSavedReport(report)}>Delete</button>
               </div>
             </div>
           ))}
@@ -3198,14 +3372,24 @@ function AdjustStockModal({
   onClose: () => void;
 }) {
   const [quantity, setQuantity] = useState(part.quantity);
+  const [isSaving, setIsSaving] = useState(false);
 
-  const save = () => {
+  const save = async () => {
     const delta = quantity - part.quantity;
-    if (delta !== 0) {
-      void adjustInventory(part.sku, delta);
-      pushToast(`Updated ${part.name} stock to ${quantity}.`);
+    if (delta === 0) {
+      onClose();
+      return;
     }
-    onClose();
+    setIsSaving(true);
+    try {
+      await adjustInventory(part.sku, delta);
+      pushToast(`Updated ${part.name} stock to ${quantity}.`);
+      onClose();
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Unable to adjust stock.', 'error');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -3217,8 +3401,8 @@ function AdjustStockModal({
       </div>
       <p className="muted">Reorder at {part.reorderLevel} units.</p>
       <div className="card-actions">
-        <button type="button" className="primary-button" onClick={save}>Save</button>
-        <button type="button" className="secondary-button" onClick={onClose}>Cancel</button>
+        <button type="button" className="primary-button" onClick={() => void save()} disabled={isSaving}>{isSaving ? 'Saving…' : 'Save'}</button>
+        <button type="button" className="secondary-button" onClick={onClose} disabled={isSaving}>Cancel</button>
       </div>
     </Modal>
   );

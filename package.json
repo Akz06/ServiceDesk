@@ -23,6 +23,7 @@
   "dependencies": {
     "cors": "latest",
     "express": "latest",
+    "express-rate-limit": "^8.7.0",
     "lucide-react": "^1.47.0",
     "pg": "latest",
     "react": "latest",

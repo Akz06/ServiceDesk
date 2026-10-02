@@ -1,5 +1,6 @@
 import cors from 'cors';
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
@@ -80,8 +81,21 @@ interface AuthenticatedRequest extends express.Request {
   authToken?: string;
 }
 
-app.use(cors());
+const corsOrigins = (process.env.CORS_ORIGIN ?? '').split(',').map((origin) => origin.trim()).filter(Boolean);
+if (corsOrigins.length === 0) {
+  console.warn('CORS_ORIGIN is not set — accepting requests from any origin. Set CORS_ORIGIN before going to production.');
+}
+app.use(cors(corsOrigins.length > 0 ? { origin: corsOrigins } : undefined));
 app.use(express.json({ limit: '1mb' }));
+
+// Blunt brute-force/spam on the two endpoints reachable without an existing session.
+const authRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many attempts. Please try again later.' },
+});
 
 const asyncHandler = (handler: express.RequestHandler): express.RequestHandler => async (request, response, next) => {
   try {
@@ -142,12 +156,12 @@ app.get('/api/health', (_request, response) => {
   response.json({ ok: true, service: 'service-desk', storage: 'postgres' });
 });
 
-app.post('/api/auth/login', asyncHandler(async (request, response) => {
+app.post('/api/auth/login', authRateLimiter, asyncHandler(async (request, response) => {
   const body = request.body as { email?: string; password?: string };
   response.json(await loginWithPassword(String(body.email ?? ''), String(body.password ?? '')));
 }));
 
-app.post('/api/organizations', asyncHandler(async (request, response) => {
+app.post('/api/organizations', authRateLimiter, asyncHandler(async (request, response) => {
   const body = request.body as Partial<OrganizationSignupDraft>;
   response.status(201).json(await createOrganizationWithAdmin({
     organizationName: String(body.organizationName ?? ''),
@@ -404,16 +418,29 @@ app.get(/.*/, (_request, response) => {
 
 app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
   void _next;
-  const statusCode = error instanceof Error && 'statusCode' in error && typeof error.statusCode === 'number' ? error.statusCode : 500;
+  // AuthError/RepositoryError both carry a numeric `statusCode` and are hand-written with
+  // deliberately safe, user-facing messages. Anything else (a raw pg driver error, a bug) is
+  // unexpected — log it in full server-side, but never forward its message to the client.
+  const isKnownError = error instanceof Error && 'statusCode' in error && typeof error.statusCode === 'number';
+  const statusCode = isKnownError ? (error as Error & { statusCode: number }).statusCode : 500;
   if (statusCode >= 500) {
     console.error(error);
   }
-  response.status(statusCode).json({ error: error instanceof Error ? error.message : 'Unexpected server error' });
+  const message = isKnownError ? (error as Error).message : 'Something went wrong. Please try again.';
+  response.status(statusCode).json({ error: message });
 });
 
+const defaultAuthSecret = 'dev-only-change-this-auth-secret';
+if (process.env.NODE_ENV === 'production' && (!process.env.AUTH_SECRET || process.env.AUTH_SECRET === defaultAuthSecret)) {
+  console.error('AUTH_SECRET must be set to a unique, random value in production. Refusing to start.');
+  process.exit(1);
+}
+
+const seedDemoData = process.env.SEED_DEMO_DATA === 'true';
+
 runMigrations()
-  .then(seedInitialDataIfEmpty)
-  .then(seedAuthUsersIfEmpty)
+  .then(() => (seedDemoData ? seedInitialDataIfEmpty() : undefined))
+  .then(() => (seedDemoData ? seedAuthUsersIfEmpty() : undefined))
   .then(() => {
     app.listen(port, '0.0.0.0', () => {
       console.log(`ServiceDesk listening on port ${port}`);

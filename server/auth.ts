@@ -80,12 +80,12 @@ function toAuthUser(row: Pick<UserRow, 'id' | 'name' | 'email' | 'role' | 'profi
   };
 }
 
-function slugify(value: string): string {
+export function slugify(value: string): string {
   const base = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
   return base || 'org';
 }
 
-function isUniqueViolation(error: unknown): boolean {
+export function isUniqueViolation(error: unknown): boolean {
   return Boolean(error && typeof error === 'object' && 'code' in error && (error as { code?: string }).code === '23505');
 }
 
@@ -102,12 +102,12 @@ function toManagedUser(row: UserRow): ManagedUser {
   };
 }
 
-async function hashPassword(password: string, salt = randomBytes(16).toString('hex')) {
+export async function hashPassword(password: string, salt = randomBytes(16).toString('hex')) {
   const derived = (await scrypt(password, salt, 64)) as Buffer;
   return { salt, hash: derived.toString('hex') };
 }
 
-async function verifyPassword(password: string, salt: string, expectedHash: string) {
+export async function verifyPassword(password: string, salt: string, expectedHash: string) {
   const { hash } = await hashPassword(password, salt);
   const expected = Buffer.from(expectedHash, 'hex');
   const actual = Buffer.from(hash, 'hex');
@@ -122,7 +122,7 @@ function validateEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-function normalizeProfile(profile: string): AuthProfile {
+export function normalizeProfile(profile: string): AuthProfile {
   const normalized = profile.toLowerCase() as AuthProfile;
   if (!validProfiles.has(normalized)) {
     throw new AuthError('Invalid user profile.');
@@ -131,7 +131,7 @@ function normalizeProfile(profile: string): AuthProfile {
   return normalized;
 }
 
-function validateUserDraft(draft: UserDraft, requirePassword: boolean) {
+export function validateUserDraft(draft: UserDraft, requirePassword: boolean) {
   const name = draft.name.trim();
   const email = draft.email.trim().toLowerCase();
   const profile = normalizeProfile(draft.profile);
@@ -456,5 +456,3 @@ export async function deleteUser(id: string, organizationId: string, actorUserId
 
   return listUsers(organizationId);
 }
-
-export const demoLoginHints = demoUsers.map(({ email, password, role }) => ({ email, password, role }));

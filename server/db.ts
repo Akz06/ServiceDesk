@@ -2,10 +2,13 @@ import pg, { type PoolClient, type QueryResultRow } from 'pg';
 
 const { Pool } = pg;
 const sslMode = process.env.PGSSLMODE;
+// Only disable certificate validation when explicitly opted into (e.g. a provider's
+// internal network uses a self-signed cert) — default to validating certs when SSL is on.
+const rejectUnauthorized = process.env.PGSSL_REJECT_UNAUTHORIZED !== 'false';
 
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: sslMode === 'require' ? { rejectUnauthorized: false } : false,
+  ssl: sslMode === 'require' ? { rejectUnauthorized } : false,
 });
 
 export async function query<T extends QueryResultRow>(text: string, params: unknown[] = []) {
