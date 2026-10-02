@@ -132,16 +132,8 @@ a:hover { text-decoration: underline; }
 .primary-link, .secondary-link { border-radius: var(--radius-md); padding: 11px 15px; font-weight: 800; }
 .primary-link { background: var(--primary); color: var(--on-primary); }
 .secondary-link { background: var(--bg-soft); color: var(--primary-strong); }
-.creator-preview { height: 250px; background: var(--sidebar); border-radius: var(--radius-xl); padding: 16px; display: grid; grid-template-columns: 112px 1fr; gap: 16px; box-shadow: var(--shadow-lg); }
-.preview-sidebar { background: var(--sidebar-soft); border-radius: var(--radius-lg); padding: 14px; display: grid; align-content: start; gap: 12px; }
-.preview-sidebar span, .preview-toolbar, .preview-grid span, .preview-table span { display: block; border-radius: 999px; background: var(--primary-soft); }
-.preview-sidebar span { height: 16px; opacity: .7; }
-.preview-content { background: var(--surface-subtle); border-radius: var(--radius-lg); padding: 16px; }
-.preview-toolbar { height: 26px; margin-bottom: 16px; }
-.preview-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
-.preview-grid span { height: 56px; }
-.preview-table { display: grid; gap: 8px; }
-.preview-table span { height: 16px; background: var(--border); }
+.hero-screenshot { border-radius: var(--radius-xl); overflow: hidden; box-shadow: var(--shadow-lg); border: 1px solid var(--border); background: var(--sidebar); }
+.hero-screenshot img { display: block; width: 100%; height: auto; }
 
 .login-panel, .feature-item { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-xl); box-shadow: var(--shadow-md); }
 .login-panel { padding: 24px; }
@@ -412,7 +404,6 @@ dd { margin: 3px 0 0; font-weight: 650; color: var(--text-strong); font-family: 
   .module-header, .creator-panel-header, .public-nav { align-items: flex-start; flex-direction: column; }
   .form-row, .record-row, .inventory-record, .progress-tracker { grid-template-columns: 1fr; }
   .homepage-hero { grid-template-columns: 1fr; }
-  .creator-preview { grid-template-columns: 80px 1fr; height: 220px; }
   .sync-banner { align-items: flex-start; flex-direction: column; }
   dl { grid-template-columns: repeat(2, 1fr); }
   .inventory-meta { text-align: left; }

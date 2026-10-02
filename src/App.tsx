@@ -312,23 +312,22 @@ function HomePage({
 
       <section className="homepage-hero">
         <div className="homepage-copy">
-          <p className="eyebrow">Full-stack repair ERP</p>
+          <p className="eyebrow">Hosted repair-shop ERP</p>
           <h1>Repair shop operations, built like a real business app.</h1>
           <p>
             {appName} manages repair requests, technicians, estimates, inventory, customer progress,
-            staff accounts, invoices, and reports — all in one place, running on your own server.
+            staff accounts, invoices, and reports — all in one place, ready in minutes. No servers to manage.
           </p>
           <div className="hero-actions">
             <a className="primary-link" href="#login">Open application</a>
             <a className="secondary-link" href={`tel:${supportPhone}`}>Call {supportPhone}</a>
           </div>
-          <div className="creator-preview" aria-label="Application preview">
-            <div className="preview-sidebar"><span /><span /><span /></div>
-            <div className="preview-content">
-              <div className="preview-toolbar" />
-              <div className="preview-grid"><span /><span /><span /><span /></div>
-              <div className="preview-table"><span /><span /><span /><span /></div>
-            </div>
+          <div className="hero-screenshot">
+            <img
+              src="/screenshots/dashboard.png"
+              alt="ServiceDesk Repair admin dashboard showing active work items, technicians, invoices, and low-stock alerts"
+              loading="eager"
+            />
           </div>
         </div>
 
@@ -372,9 +371,9 @@ function HomePage({
         <Feature title="Organized like a real business app" body="Modules, reports, forms, record lists, and detail panels instead of a single dashboard." />
         <Feature title="Role-based access" body="Admin sees every module; Agent, Technician, and Customer see only their permitted workspace." />
         <Feature title="Everything in one place" body="Customers, work items, invoices, inventory, and staff accounts stay in sync automatically." />
-        <Feature title="Deploy anywhere" body="Runs as a single service you can host wherever you like." />
-        <Feature title="You own your data" body="Self-hosted on your own database — no forced vendor migration and no lock-in to switch away from." />
-        <Feature title="No surprise price hikes" body="Priced by your own infrastructure cost, not a per-seat subscription that can double overnight." />
+        <Feature title="Up and running in minutes" body="Create your organization and start working immediately — no installation, no IT project." />
+        <Feature title="Your data, isolated" body="Every organization's customers, invoices, and records are fully separated from every other organization's — never shared, never mixed." />
+        <Feature title="Built for growing teams" body="Add staff accounts in bulk via CSV, assign roles, and scale from a two-person shop to a multi-location operation." />
       </section>
     </main>
   );
