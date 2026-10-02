@@ -1100,9 +1100,11 @@ function OrganizationPanel({
 }) {
   const [showBulkAdd, setShowBulkAdd] = useState(false);
   const [organizationName, setOrganizationName] = useState(currentUser.organizationName);
-  const [workItemIdPrefix, setWorkItemIdPrefix] = useState(currentUser.workItemIdPrefix);
-  const [invoiceIdPrefix, setInvoiceIdPrefix] = useState(currentUser.invoiceIdPrefix);
-  const [currencyCode, setCurrencyCode] = useState(currentUser.currencyCode);
+  // A session cached before these fields existed (localStorage AuthUser predating this
+  // feature) would otherwise leave these as undefined and crash the .trim() calls below.
+  const [workItemIdPrefix, setWorkItemIdPrefix] = useState(currentUser.workItemIdPrefix ?? 'WI');
+  const [invoiceIdPrefix, setInvoiceIdPrefix] = useState(currentUser.invoiceIdPrefix ?? 'INV');
+  const [currencyCode, setCurrencyCode] = useState(currentUser.currencyCode ?? 'USD');
   const [lastSynced, setLastSynced] = useState(currentUser);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingSampleData, setIsLoadingSampleData] = useState(false);
@@ -1125,9 +1127,9 @@ function OrganizationPanel({
   if (currentUser !== lastSynced) {
     setLastSynced(currentUser);
     setOrganizationName(currentUser.organizationName);
-    setWorkItemIdPrefix(currentUser.workItemIdPrefix);
-    setInvoiceIdPrefix(currentUser.invoiceIdPrefix);
-    setCurrencyCode(currentUser.currencyCode);
+    setWorkItemIdPrefix(currentUser.workItemIdPrefix ?? 'WI');
+    setInvoiceIdPrefix(currentUser.invoiceIdPrefix ?? 'INV');
+    setCurrencyCode(currentUser.currencyCode ?? 'USD');
   }
 
   const hasChanges =
