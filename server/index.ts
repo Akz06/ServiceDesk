@@ -27,6 +27,7 @@ import {
   createUser,
   deleteUser,
   getUserForToken,
+  grantPlatformAdminFromEnv,
   impersonateUser,
   listOrganizationsForPlatform,
   listOrganizationUsersForPlatform,
@@ -482,6 +483,7 @@ const seedDemoData = process.env.SEED_DEMO_DATA === 'true';
 runMigrations()
   .then(() => (seedDemoData ? seedInitialDataIfEmpty() : undefined))
   .then(() => (seedDemoData ? seedAuthUsersIfEmpty() : undefined))
+  .then(() => grantPlatformAdminFromEnv())
   .then(() => {
     app.listen(port, '0.0.0.0', () => {
       console.log(`ServiceDesk listening on port ${port}`);

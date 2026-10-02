@@ -204,6 +204,23 @@ export async function seedAuthUsersIfEmpty() {
   }
 }
 
+// Grants platform-admin (the /admin console) access to one account by email, driven by the
+// PLATFORM_ADMIN_EMAIL env var. Safe to run on every boot — it's just an idempotent UPDATE — so
+// no separate one-off script or direct database write is needed to turn this on.
+export async function grantPlatformAdminFromEnv() {
+  const email = process.env.PLATFORM_ADMIN_EMAIL?.trim().toLowerCase();
+  if (!email) {
+    return;
+  }
+
+  const result = await query<{ id: string }>('UPDATE users SET is_platform_admin = TRUE WHERE email = $1 RETURNING id', [email]);
+  if (result.rowCount && result.rowCount > 0) {
+    console.log(`Granted platform admin access to ${email}.`);
+  } else {
+    console.warn(`PLATFORM_ADMIN_EMAIL is set to "${email}", but no user with that email exists yet.`);
+  }
+}
+
 async function issueSession(userId: string): Promise<{ token: string }> {
   const token = randomBytes(32).toString('hex');
   const sessionId = randomBytes(16).toString('hex');
