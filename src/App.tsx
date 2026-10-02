@@ -54,7 +54,7 @@ import { useAuth } from './hooks/useAuth';
 import { useServiceDesk } from './hooks/useServiceDesk';
 import { useToast } from './hooks/useToast';
 import type { ToastTone } from './hooks/useToast';
-import { getInitialModuleFromUrl, getOrCreateSessionId, updateUrlForModule } from './services/routing';
+import { getExistingSessionId, getInitialModuleFromUrl, updateUrlForModule } from './services/routing';
 import { getMetrics, getNextStatuses } from './services/serviceDeskStore';
 import { isApiPersistenceEnabled, userApi } from './services/apiClient';
 import type {
@@ -105,7 +105,6 @@ const reportColumnOptions: Record<ReportEntity, string[]> = {
 const nowStamp = () => new Date().toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
 const supportEmail = import.meta.env.VITE_SUPPORT_EMAIL ?? 'support@example.com';
-const supportPhone = import.meta.env.VITE_SUPPORT_PHONE ?? '+1-555-0100';
 const appName = import.meta.env.VITE_APP_NAME ?? 'ServiceDesk Repair';
 
 const blankDraft: WorkItemDraft = {
@@ -237,7 +236,7 @@ const groupIdFor = (activeView: string): string => {
 };
 
 function App() {
-  const [sessionId] = useState(getOrCreateSessionId);
+  const [sessionId, setSessionId] = useState<string | null>(getExistingSessionId);
   const initialModule = getInitialModuleFromUrl();
   const auth = useAuth();
   const [activeModule, setActiveModule] = useState<ModuleId | null>(() => {
@@ -253,16 +252,28 @@ function App() {
     document.documentElement.dataset.theme = 'dark';
   }, []);
 
+  useEffect(() => {
+    // A stale/bookmarked `/app/<id>` or `/login/<id>` URL from before a session expired
+    // (or from before session ids were scoped to logged-in users) should fall back to a
+    // clean, id-free `/login` rather than leaking an id for a logged-out visitor.
+    if (!auth.user && window.location.pathname !== '/login') {
+      window.history.replaceState({}, '', '/login');
+    }
+  }, [auth.user]);
+
   const handleLoginSuccess = (user: AuthUser) => {
     const nextModule = initialModule && user.moduleAccess.includes(initialModule) ? initialModule : defaultModuleForProfile(user.profile);
+    const nextSessionId = sessionId ?? crypto.randomUUID();
+    setSessionId(nextSessionId);
     setActiveModule(nextModule);
-    updateUrlForModule(sessionId, nextModule);
+    updateUrlForModule(nextSessionId, nextModule);
   };
 
   const handleLogout = async () => {
     await auth.logout();
     setActiveModule(null);
-    updateUrlForModule(sessionId, null);
+    setSessionId(null);
+    updateUrlForModule(null, null);
   };
 
   if (!auth.user || !activeModule) {
@@ -307,7 +318,6 @@ function HomePage({
     <main className="public-shell">
       <nav className="public-nav" aria-label="Homepage navigation">
         <div className="brand"><div className="brand-mark">SD</div><span>{appName}</span></div>
-        <div className="public-links"><a href="#features">Features</a><a href="#login">Login</a><a href={`mailto:${supportEmail}`}>Contact</a></div>
       </nav>
 
       <section className="homepage-hero">
@@ -319,8 +329,7 @@ function HomePage({
             staff accounts, invoices, and reports — all in one place, ready in minutes. No servers to manage.
           </p>
           <div className="hero-actions">
-            <a className="primary-link" href="#login">Open application</a>
-            <a className="secondary-link" href={`tel:${supportPhone}`}>Call {supportPhone}</a>
+            <a className="primary-link" href="#login">Login</a>
           </div>
           <div className="hero-screenshot">
             <img
@@ -368,13 +377,18 @@ function HomePage({
       </section>
 
       <section className="feature-band" id="features">
-        <Feature title="Organized like a real business app" body="Modules, reports, forms, record lists, and detail panels instead of a single dashboard." />
-        <Feature title="Role-based access" body="Admin sees every module; Agent, Technician, and Customer see only their permitted workspace." />
-        <Feature title="Everything in one place" body="Customers, work items, invoices, inventory, and staff accounts stay in sync automatically." />
-        <Feature title="Up and running in minutes" body="Create your organization and start working immediately — no installation, no IT project." />
-        <Feature title="Your data, isolated" body="Every organization's customers, invoices, and records are fully separated from every other organization's — never shared, never mixed." />
-        <Feature title="Built for growing teams" body="Add staff accounts in bulk via CSV, assign roles, and scale from a two-person shop to a multi-location operation." />
+        <Feature title="A repair ticket from intake to delivery" body="Every work item moves through New Request, Diagnosis, Estimate Shared, In Repair, Quality Check, and Delivered, so nothing stalls unnoticed." />
+        <Feature title="Estimates that become invoices" body="Share an estimate, get it approved, then convert it straight into an invoice and record payments against it." />
+        <Feature title="Technicians see their own queue" body="Assign repairs to a technician and they see exactly their assigned jobs and device details — nothing else." />
+        <Feature title="Inventory that stays accurate" body="Parts stock adjusts as repairs consume it, with low-stock alerts before a job gets stuck waiting." />
+        <Feature title="Customers can track their own repair" body="Customers log in to see status, estimates, and invoices for their own devices only." />
+        <Feature title="Reports and a full audit trail" body="Save custom reports for recurring questions, and every change is recorded for accountability." />
       </section>
+
+      <footer className="public-footer">
+        <span>&copy; {new Date().getFullYear()} {appName}. Hosted and developed in India.</span>
+        <a href={`mailto:${supportEmail}`}>{supportEmail}</a>
+      </footer>
     </main>
   );
 }
