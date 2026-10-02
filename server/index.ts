@@ -73,6 +73,10 @@ const toCsv = (headers: string[], rows: Array<Array<string | number>>) =>
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
+// Railway (and most PaaS hosts) sit the app behind one reverse-proxy hop that sets
+// X-Forwarded-For; without this, Express reports the proxy's IP for every request and
+// express-rate-limit refuses to trust the header, breaking IP-based rate limiting.
+app.set('trust proxy', 1);
 const port = Number(process.env.PORT ?? 3000);
 const distPath = join(__dirname, '..', 'dist');
 

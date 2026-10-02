@@ -250,6 +250,10 @@ export async function createOrganizationWithAdmin(input: OrganizationSignupDraft
     let inserted = false;
     for (let attempt = 0; attempt < 20 && !inserted; attempt += 1) {
       const slug = attempt === 0 ? baseSlug : `${baseSlug}-${attempt + 1}`;
+      // Postgres aborts the whole transaction on a failed statement, so a caught unique-violation
+      // would otherwise poison every later query in this transaction — a SAVEPOINT per attempt
+      // keeps the transaction usable so the next slug can actually be tried.
+      await client.query('SAVEPOINT slug_attempt');
       try {
         await client.query('INSERT INTO organizations (id, name, slug, created_by) VALUES ($1, $2, $3, $4)', [
           organizationId,
@@ -257,8 +261,10 @@ export async function createOrganizationWithAdmin(input: OrganizationSignupDraft
           slug,
           next.name,
         ]);
+        await client.query('RELEASE SAVEPOINT slug_attempt');
         inserted = true;
       } catch (error) {
+        await client.query('ROLLBACK TO SAVEPOINT slug_attempt');
         if (!isUniqueViolation(error)) {
           throw error;
         }
