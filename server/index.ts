@@ -11,6 +11,7 @@ import type {
   InvoiceDraft,
   InvoiceStatus,
   ModuleId,
+  OrganizationSettingsPatch,
   OrganizationSignupDraft,
   PaymentMethod,
   SavedReportDraft,
@@ -37,7 +38,7 @@ import {
   logoutToken,
   logPlatformEvent,
   seedAuthUsersIfEmpty,
-  updateOrganizationName,
+  updateOrganizationSettings,
   updateUser,
 } from './auth';
 import { runMigrations } from './migrate';
@@ -191,9 +192,9 @@ app.post('/api/organizations', authRateLimiter, asyncHandler(async (request, res
 }));
 
 app.patch('/api/organization', requireAuth, requireAdmin, asyncHandler(async (request: AuthenticatedRequest, response) => {
-  const body = request.body as { name?: string };
+  const body = request.body as OrganizationSettingsPatch;
   response.json({
-    user: await updateOrganizationName(String(request.user!.organizationId), String(request.user!.id), String(body.name ?? '')),
+    user: await updateOrganizationSettings(String(request.user!.organizationId), String(request.user!.id), body),
   });
 }));
 

@@ -32,6 +32,7 @@ interface CustomerRow {
 
 interface WorkItemRow {
   id: string;
+  sequence_number: number;
   customer_id: string;
   customer_name: string;
   customer_phone: string;
@@ -94,6 +95,7 @@ interface TechnicianRow {
 
 interface InvoiceRow {
   id: string;
+  sequence_number: number;
   work_item_id: string;
   customer_id: string;
   customer_name: string;
@@ -147,6 +149,7 @@ const nextNumericId = (prefix: string, values: string[], fallback: number) => {
 function mapWorkItem(row: WorkItemRow, updates: WorkItemUpdate[]): WorkItem {
   return {
     id: row.id,
+    sequenceNumber: row.sequence_number,
     customerId: row.customer_id,
     customerName: row.customer_name,
     customerPhone: row.customer_phone,
@@ -179,6 +182,7 @@ function mapWorkItem(row: WorkItemRow, updates: WorkItemUpdate[]): WorkItem {
 function mapInvoice(row: InvoiceRow): Invoice {
   return {
     id: row.id,
+    sequenceNumber: row.sequence_number,
     workItemId: row.work_item_id,
     customerId: row.customer_id,
     customerName: row.customer_name,
@@ -326,16 +330,17 @@ export async function replaceAllData(state: ServiceDeskState, organizationId: st
       );
     }
 
-    for (const item of state.workItems) {
+    for (const [index, item] of state.workItems.entries()) {
       await client.query(
         `INSERT INTO work_items (
-          id, organization_id, customer_id, customer_name, customer_phone, customer_email, source, device_type, device_model,
+          id, sequence_number, organization_id, customer_id, customer_name, customer_phone, customer_email, source, device_type, device_model,
           serial_number, issue_summary, priority, status, assigned_technician_id, analysis, required_changes,
           estimated_price, labor_estimate, parts_estimate, diagnostic_fee, approved_by_customer, parts_required,
           created_at, created_by, updated_at, updated_by, promised_by
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)`,
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)`,
         [
           scopedId(item.id),
+          index + 1,
           organizationId,
           scopedId(item.customerId),
           item.customerName,
@@ -384,14 +389,15 @@ export async function replaceAllData(state: ServiceDeskState, organizationId: st
       );
     }
 
-    for (const invoice of state.invoices) {
+    for (const [index, invoice] of state.invoices.entries()) {
       await client.query(
         `INSERT INTO invoices (
-          id, organization_id, work_item_id, customer_id, customer_name, amount, labor_amount, parts_amount, diagnostic_fee,
+          id, sequence_number, organization_id, work_item_id, customer_id, customer_name, amount, labor_amount, parts_amount, diagnostic_fee,
           status, issued_at, paid_at, payment_method, payment_reference, notes, created_by, updated_by
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16)`,
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $17)`,
         [
           scopedId(invoice.id),
+          index + 1,
           organizationId,
           scopedId(invoice.workItemId),
           scopedId(invoice.customerId),
@@ -432,7 +438,10 @@ export async function createWorkItem(draft: WorkItemDraft, organizationId: strin
   );
   // ID sequences are generated against the GLOBAL id space (not org-scoped) — see the
   // "Per-org pretty ID sequences" decision: every table's primary key is still a bare
-  // global TEXT column, so a per-org-only uniqueness scan would collide across orgs.
+  // global TEXT column, so a per-org-only uniqueness scan would collide across orgs. The
+  // user-facing short id (sequenceNumber + the org's configurable prefix) is separate and
+  // IS org-scoped, since it's just a display number, not a key — state.workItems is already
+  // scoped to this organization, so its max is this org's own counter.
   const [allCustomerIds, allWorkItemIds] = await Promise.all([
     query<{ id: string }>('SELECT id FROM customers'),
     query<{ id: string }>('SELECT id FROM work_items'),
@@ -448,8 +457,10 @@ export async function createWorkItem(draft: WorkItemDraft, organizationId: strin
     updatedBy: actor,
   };
   const workItemId = nextNumericId('WI', allWorkItemIds.rows.map((row) => row.id), 1023);
+  const sequenceNumber = state.workItems.reduce((highest, existing) => Math.max(highest, existing.sequenceNumber), 0) + 1;
   const item: WorkItem = {
     id: workItemId,
+    sequenceNumber,
     customerId: customer.id,
     customerName: customer.name,
     customerPhone: customer.phone,
@@ -495,13 +506,14 @@ export async function createWorkItem(draft: WorkItemDraft, organizationId: strin
 
     await client.query(
       `INSERT INTO work_items (
-        id, organization_id, customer_id, customer_name, customer_phone, customer_email, source, device_type, device_model,
+        id, sequence_number, organization_id, customer_id, customer_name, customer_phone, customer_email, source, device_type, device_model,
         serial_number, issue_summary, priority, status, assigned_technician_id, analysis, required_changes,
         estimated_price, labor_estimate, parts_estimate, diagnostic_fee, approved_by_customer, parts_required,
         created_at, created_by, updated_at, updated_by, promised_by
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)`,
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)`,
       [
         item.id,
+        item.sequenceNumber,
         organizationId,
         item.customerId,
         item.customerName,
@@ -880,10 +892,11 @@ export async function createInvoice(draft: InvoiceDraft, organizationId: string,
   }
 
   const invoiceId = nextNumericId('INV', state.invoices.map((invoice) => invoice.id), 5000);
+  const sequenceNumber = state.invoices.reduce((highest, existing) => Math.max(highest, existing.sequenceNumber), 0) + 1;
   await query(
-    `INSERT INTO invoices (id, organization_id, work_item_id, customer_id, customer_name, amount, labor_amount, parts_amount, diagnostic_fee, status, issued_at, notes, created_by, updated_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'Issued', $10, $11, $12, $12)`,
-    [invoiceId, organizationId, item.id, item.customerId, item.customerName, amount, laborAmount, partsAmount, diagnosticFee, nowStamp(), draft.notes.trim(), actor],
+    `INSERT INTO invoices (id, sequence_number, organization_id, work_item_id, customer_id, customer_name, amount, labor_amount, parts_amount, diagnostic_fee, status, issued_at, notes, created_by, updated_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'Issued', $10, $11, $12, $13, $13)`,
+    [invoiceId, sequenceNumber, organizationId, item.id, item.customerId, item.customerName, amount, laborAmount, partsAmount, diagnosticFee, nowStamp(), draft.notes.trim(), actor],
   );
 
   return getServiceDeskState(organizationId);

@@ -1,3 +1,4 @@
+import { createContext, useContext } from 'react';
 import type { AuthProfile, DeviceType, ModuleId, Priority, UserRole, WorkItemStatus } from '../types';
 
 export const deviceTypes: DeviceType[] = ['Laptop', 'Desktop', 'Mobile', 'Tablet', 'Console', 'Accessory', 'Other Electronics'];
@@ -53,8 +54,36 @@ export const statusFlow: WorkItemStatus[] = [
 
 export const terminalStatuses: WorkItemStatus[] = ['Delivered', 'Cancelled'];
 
-export const currencyFormatter = new Intl.NumberFormat('en-US', {
-  style: 'currency',
-  currency: 'USD',
-  maximumFractionDigits: 0,
+const defaultCurrencyFormatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+
+export const createCurrencyFormatter = (currencyCode: string): Intl.NumberFormat => {
+  try {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: currencyCode, maximumFractionDigits: 0 });
+  } catch {
+    // An org saved an invalid/unsupported currency code — fall back rather than crash the UI.
+    return defaultCurrencyFormatter;
+  }
+};
+
+export const currencyCodes = ['USD', 'INR', 'EUR', 'GBP', 'AUD', 'CAD', 'SGD', 'AED', 'JPY'];
+
+export const formatShortId = (prefix: string, sequenceNumber: number): string => `${prefix}-${String(sequenceNumber).padStart(3, '0')}`;
+
+interface OrgDisplaySettings {
+  currencyFormatter: Intl.NumberFormat;
+  workItemIdPrefix: string;
+  invoiceIdPrefix: string;
+}
+
+// An organization's currency and short-id prefixes are reached through this context (provided
+// once, near the root of the authenticated Workspace) instead of being threaded as props through
+// every intermediate component, so every amount/short-id on screen updates together when the
+// org's settings change.
+const OrgDisplaySettingsContext = createContext<OrgDisplaySettings>({
+  currencyFormatter: defaultCurrencyFormatter,
+  workItemIdPrefix: 'WI',
+  invoiceIdPrefix: 'INV',
 });
+export const OrgDisplaySettingsProvider = OrgDisplaySettingsContext.Provider;
+export const useOrgDisplaySettings = () => useContext(OrgDisplaySettingsContext);
+export const useCurrencyFormatter = () => useContext(OrgDisplaySettingsContext).currencyFormatter;

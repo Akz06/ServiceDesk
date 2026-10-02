@@ -108,8 +108,10 @@ export const createWorkItemRecord = (state: ServiceDeskState, draft: WorkItemDra
     updatedBy: actor,
   };
   const workItemId = nextNumericId('WI', state.workItems.map((item) => item.id), 1023);
+  const sequenceNumber = state.workItems.reduce((highest, item) => Math.max(highest, item.sequenceNumber), 0) + 1;
   const workItem: WorkItem = {
     id: workItemId,
+    sequenceNumber,
     customerId: customer.id,
     customerName: customer.name,
     customerPhone: customer.phone,
@@ -368,6 +370,7 @@ export const createInvoiceRecord = (state: ServiceDeskState, draft: InvoiceDraft
     invoices: [
       {
         id: nextNumericId('INV', state.invoices.map((invoice) => invoice.id), 5000),
+        sequenceNumber: state.invoices.reduce((highest, invoice) => Math.max(highest, invoice.sequenceNumber), 0) + 1,
         workItemId: item.id,
         customerId: item.customerId,
         customerName: item.customerName,

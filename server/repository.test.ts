@@ -48,12 +48,14 @@ describe('replaceAllData', () => {
     const workItemInsert = insertsForOrgA.find((call) => (call.sql as string).includes('INSERT INTO work_items'));
     const workItemParams = workItemInsert?.params as unknown[];
     expect(workItemParams[0]).toBe(`org-aaa:${initialServiceDeskState.workItems[0].id}`);
-    expect(workItemParams[2]).toBe(`org-aaa:${initialServiceDeskState.workItems[0].customerId}`);
+    expect(workItemParams[1]).toBe(1);
+    expect(workItemParams[3]).toBe(`org-aaa:${initialServiceDeskState.workItems[0].customerId}`);
 
     const invoiceInsert = insertsForOrgA.find((call) => (call.sql as string).includes('INSERT INTO invoices'));
     const invoiceParams = invoiceInsert?.params as unknown[];
-    expect(invoiceParams[2]).toBe(`org-aaa:${initialServiceDeskState.invoices[0].workItemId}`);
-    expect(invoiceParams[3]).toBe(`org-aaa:${initialServiceDeskState.invoices[0].customerId}`);
+    expect(invoiceParams[1]).toBe(1);
+    expect(invoiceParams[3]).toBe(`org-aaa:${initialServiceDeskState.invoices[0].workItemId}`);
+    expect(invoiceParams[4]).toBe(`org-aaa:${initialServiceDeskState.invoices[0].customerId}`);
   });
 
   it('leaves inventory part skus unscoped since that table already has a composite (organization_id, sku) key', async () => {

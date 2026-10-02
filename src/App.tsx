@@ -43,12 +43,17 @@ import { ToastStack } from './components/ToastStack';
 import { serviceCategories } from './data/repairShop';
 import {
   authProfiles,
-  currencyFormatter,
+  createCurrencyFormatter,
+  currencyCodes,
   defaultModuleForProfile,
   deviceTypes,
+  formatShortId,
+  OrgDisplaySettingsProvider,
   priorities,
   statusFlow,
   terminalStatuses,
+  useCurrencyFormatter,
+  useOrgDisplaySettings,
 } from './domain/constants';
 import { useAuth } from './hooks/useAuth';
 import { useServiceDesk } from './hooks/useServiceDesk';
@@ -71,6 +76,7 @@ import type {
   InvoiceStatus,
   ManagedUser,
   ModuleId,
+  OrganizationSettingsPatch,
   PaymentMethod,
   Priority,
   ReportEntity,
@@ -280,7 +286,7 @@ function App() {
     return <HomePage auth={auth} onLoginSuccess={handleLoginSuccess} />;
   }
 
-  return <Workspace user={auth.user} onLogout={handleLogout} onRenameOrganization={auth.renameOrganization} />;
+  return <Workspace user={auth.user} onLogout={handleLogout} onUpdateOrganization={auth.updateOrganization} />;
 }
 
 function HomePage({
@@ -396,12 +402,13 @@ function HomePage({
 function Workspace({
   user,
   onLogout,
-  onRenameOrganization,
+  onUpdateOrganization,
 }: {
   user: AuthUser;
   onLogout: () => Promise<void>;
-  onRenameOrganization: (name: string) => Promise<AuthUser>;
+  onUpdateOrganization: (patch: OrganizationSettingsPatch) => Promise<AuthUser>;
 }) {
+  const currencyFormatter = useMemo(() => createCurrencyFormatter(user.currencyCode), [user.currencyCode]);
   const [selectedTechnicianId, setSelectedTechnicianId] = useState('tech-arun');
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -475,7 +482,13 @@ function Workspace({
       </label>
     ) : undefined;
 
+  const orgDisplaySettings = useMemo(
+    () => ({ currencyFormatter, workItemIdPrefix: user.workItemIdPrefix, invoiceIdPrefix: user.invoiceIdPrefix }),
+    [currencyFormatter, user.workItemIdPrefix, user.invoiceIdPrefix],
+  );
+
   return (
+    <OrgDisplaySettingsProvider value={orgDisplaySettings}>
     <main className={sidebarCollapsed ? 'creator-shell sidebar-collapsed' : 'creator-shell'}>
       {mobileNavOpen && <div className="nav-overlay" onClick={() => setMobileNavOpen(false)} aria-hidden="true" />}
       <aside className={mobileNavOpen ? 'creator-sidebar nav-open' : 'creator-sidebar'}>
@@ -581,12 +594,13 @@ function Workspace({
             pushToast={toast.push}
             navigate={navigate}
             focusRecordId={focusRecordId}
-            onRenameOrganization={onRenameOrganization}
+            onUpdateOrganization={onUpdateOrganization}
           />
         </section>
       </section>
       <ToastStack toasts={toast.toasts} onDismiss={toast.dismiss} />
     </main>
+    </OrgDisplaySettingsProvider>
   );
 }
 
@@ -652,7 +666,7 @@ function WorkspaceContent(
     pushToast: (message: ReactNode, tone?: ToastTone) => void;
     navigate: (id: string, recordId?: string) => void;
     focusRecordId: string | null;
-    onRenameOrganization: (name: string) => Promise<AuthUser>;
+    onUpdateOrganization: (patch: OrganizationSettingsPatch) => Promise<AuthUser>;
   },
 ) {
   const {
@@ -689,7 +703,7 @@ function WorkspaceContent(
     pushToast,
     navigate,
     focusRecordId,
-    onRenameOrganization,
+    onUpdateOrganization,
   } = props;
   const [selectedDeviceType, setSelectedDeviceType] = useState<DeviceType | 'All'>('All');
 
@@ -705,7 +719,7 @@ function WorkspaceContent(
       )}
 
       {activeView === 'organization' && (
-        <OrganizationPanel currentUser={currentUser} navigate={navigate} onRenameOrganization={onRenameOrganization} pushToast={pushToast} reset={reset} />
+        <OrganizationPanel currentUser={currentUser} navigate={navigate} onUpdateOrganization={onUpdateOrganization} pushToast={pushToast} reset={reset} />
       )}
 
       {activeView === 'users' && <UsersReport currentUser={currentUser} pushToast={pushToast} />}
@@ -735,7 +749,7 @@ function WorkspaceContent(
         />
       )}
 
-      {activeView === 'wi-board' && <KanbanBoard workItems={state.workItems} updateWorkItem={updateWorkItem} pushToast={pushToast} />}
+      {activeView === 'wi-board' && <KanbanBoard workItems={state.workItems} technicians={state.technicians} updateWorkItem={updateWorkItem} pushToast={pushToast} />}
       {(activeView === 'wi-all' || activeView === 'wi-walkins') && (
         <WorkItemsSection
           subView={activeView === 'wi-walkins' ? 'walkins' : 'all'}
@@ -872,6 +886,8 @@ function DashboardPanel({
   navigate: (id: string, recordId?: string) => void;
   moduleAccess: ModuleId[];
 }) {
+  const currencyFormatter = useCurrencyFormatter();
+  const { workItemIdPrefix } = useOrgDisplaySettings();
   const metrics = getMetrics(state);
   const stockSectionId = moduleAccess.includes('admin') || moduleAccess.includes('agent') ? 'inventory-report' : 'parts';
   const lowStockParts = state.inventoryParts.filter((part) => part.quantity <= part.reorderLevel).map((part) => ({ ...part, id: part.sku }));
@@ -905,7 +921,7 @@ function DashboardPanel({
 
   if (profile === 'technician') {
     const assignedItems = state.workItems.filter((item) => item.assignedTechnicianId === selectedTechnicianId && item.status !== 'Cancelled');
-    return <DataGrid title="My assigned jobs" columns={workItemGridColumns} rows={assignedItems} onRowClick={() => navigate('myjobs-assigned')} />;
+    return <DataGrid title="My assigned jobs" columns={workItemGridColumns(currencyFormatter, workItemIdPrefix)} rows={assignedItems} onRowClick={() => navigate('myjobs-assigned')} />;
   }
 
   return (
@@ -930,12 +946,15 @@ function DashboardPanel({
 
 const MANAGED_USERS_STORAGE_KEY = 'service-desk-managed-users';
 
-const seedManagedUsers = (currentUser: AuthUser): ManagedUser[] => [
-  { ...currentUser, active: true, createdAt: 'Local demo', createdBy: 'System', updatedAt: 'Local demo', updatedBy: 'System' },
-  { id: 'user-agent', name: 'Agent User', email: 'agent@servicedesk.local', role: 'Agent', profile: 'agent', moduleAccess: ['agent'], organizationId: currentUser.organizationId, organizationName: currentUser.organizationName, active: true, createdAt: 'Local demo', createdBy: 'System', updatedAt: 'Local demo', updatedBy: 'System' },
-  { id: 'user-technician', name: 'Technician User', email: 'tech@servicedesk.local', role: 'Technician', profile: 'technician', moduleAccess: ['technician'], organizationId: currentUser.organizationId, organizationName: currentUser.organizationName, active: true, createdAt: 'Local demo', createdBy: 'System', updatedAt: 'Local demo', updatedBy: 'System' },
-  { id: 'user-customer', name: 'Customer User', email: 'customer@servicedesk.local', role: 'Customer', profile: 'customer', moduleAccess: ['customer'], organizationId: currentUser.organizationId, organizationName: currentUser.organizationName, active: true, createdAt: 'Local demo', createdBy: 'System', updatedAt: 'Local demo', updatedBy: 'System' },
-];
+const seedManagedUsers = (currentUser: AuthUser): ManagedUser[] => {
+  const orgSettings = { workItemIdPrefix: currentUser.workItemIdPrefix, invoiceIdPrefix: currentUser.invoiceIdPrefix, currencyCode: currentUser.currencyCode };
+  return [
+    { ...currentUser, active: true, createdAt: 'Local demo', createdBy: 'System', updatedAt: 'Local demo', updatedBy: 'System' },
+    { id: 'user-agent', name: 'Agent User', email: 'agent@servicedesk.local', role: 'Agent', profile: 'agent', moduleAccess: ['agent'], organizationId: currentUser.organizationId, organizationName: currentUser.organizationName, ...orgSettings, active: true, createdAt: 'Local demo', createdBy: 'System', updatedAt: 'Local demo', updatedBy: 'System' },
+    { id: 'user-technician', name: 'Technician User', email: 'tech@servicedesk.local', role: 'Technician', profile: 'technician', moduleAccess: ['technician'], organizationId: currentUser.organizationId, organizationName: currentUser.organizationName, ...orgSettings, active: true, createdAt: 'Local demo', createdBy: 'System', updatedAt: 'Local demo', updatedBy: 'System' },
+    { id: 'user-customer', name: 'Customer User', email: 'customer@servicedesk.local', role: 'Customer', profile: 'customer', moduleAccess: ['customer'], organizationId: currentUser.organizationId, organizationName: currentUser.organizationName, ...orgSettings, active: true, createdAt: 'Local demo', createdBy: 'System', updatedAt: 'Local demo', updatedBy: 'System' },
+  ];
+};
 
 const loadLocalManagedUsers = (currentUser: AuthUser): ManagedUser[] => {
   try {
@@ -972,6 +991,9 @@ function NewUserForm({ currentUser, pushToast, onDone }: { currentUser: AuthUser
         moduleAccess: profileToModules(userDraft.profile),
         organizationId: currentUser.organizationId,
         organizationName: currentUser.organizationName,
+        workItemIdPrefix: currentUser.workItemIdPrefix,
+        invoiceIdPrefix: currentUser.invoiceIdPrefix,
+        currencyCode: currentUser.currencyCode,
         createdAt: nowStamp(),
         createdBy: currentUser.name,
         updatedAt: nowStamp(),
@@ -1066,19 +1088,22 @@ function UserEditForm({
 function OrganizationPanel({
   currentUser,
   navigate,
-  onRenameOrganization,
+  onUpdateOrganization,
   pushToast,
   reset,
 }: {
   currentUser: AuthUser;
   navigate: (id: string, recordId?: string) => void;
-  onRenameOrganization: (name: string) => Promise<AuthUser>;
+  onUpdateOrganization: (patch: OrganizationSettingsPatch) => Promise<AuthUser>;
   pushToast: (message: ReactNode, tone?: ToastTone) => void;
   reset: () => Promise<void>;
 }) {
   const [showBulkAdd, setShowBulkAdd] = useState(false);
   const [organizationName, setOrganizationName] = useState(currentUser.organizationName);
-  const [lastSyncedName, setLastSyncedName] = useState(currentUser.organizationName);
+  const [workItemIdPrefix, setWorkItemIdPrefix] = useState(currentUser.workItemIdPrefix);
+  const [invoiceIdPrefix, setInvoiceIdPrefix] = useState(currentUser.invoiceIdPrefix);
+  const [currencyCode, setCurrencyCode] = useState(currentUser.currencyCode);
+  const [lastSynced, setLastSynced] = useState(currentUser);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingSampleData, setIsLoadingSampleData] = useState(false);
 
@@ -1097,18 +1122,25 @@ function OrganizationPanel({
     }
   };
 
-  if (currentUser.organizationName !== lastSyncedName) {
-    setLastSyncedName(currentUser.organizationName);
+  if (currentUser !== lastSynced) {
+    setLastSynced(currentUser);
     setOrganizationName(currentUser.organizationName);
+    setWorkItemIdPrefix(currentUser.workItemIdPrefix);
+    setInvoiceIdPrefix(currentUser.invoiceIdPrefix);
+    setCurrencyCode(currentUser.currencyCode);
   }
 
-  const hasChanges = organizationName.trim().length > 0 && organizationName.trim() !== currentUser.organizationName;
+  const hasChanges =
+    (organizationName.trim().length > 0 && organizationName.trim() !== currentUser.organizationName) ||
+    (workItemIdPrefix.trim().length > 0 && workItemIdPrefix.trim() !== currentUser.workItemIdPrefix) ||
+    (invoiceIdPrefix.trim().length > 0 && invoiceIdPrefix.trim() !== currentUser.invoiceIdPrefix) ||
+    currencyCode !== currentUser.currencyCode;
 
   const saveSettings = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setIsSaving(true);
     try {
-      await onRenameOrganization(organizationName);
+      await onUpdateOrganization({ name: organizationName, workItemIdPrefix, invoiceIdPrefix, currencyCode });
       pushToast('Organization settings saved.');
     } catch (error) {
       pushToast(error instanceof Error ? error.message : 'Unable to save organization settings.', 'error');
@@ -1142,6 +1174,37 @@ function OrganizationPanel({
           <label>
             Organization name
             <input value={organizationName} onChange={(event) => setOrganizationName(event.target.value)} required minLength={2} />
+          </label>
+          <div className="form-row">
+            <label>
+              Work item ID prefix
+              <input
+                value={workItemIdPrefix}
+                onChange={(event) => setWorkItemIdPrefix(event.target.value.toUpperCase())}
+                required
+                minLength={1}
+                maxLength={8}
+              />
+            </label>
+            <label>
+              Invoice ID prefix
+              <input
+                value={invoiceIdPrefix}
+                onChange={(event) => setInvoiceIdPrefix(event.target.value.toUpperCase())}
+                required
+                minLength={1}
+                maxLength={8}
+              />
+            </label>
+          </div>
+          <p className="module-subtitle">
+            Preview: {formatShortId(workItemIdPrefix || 'WI', 1)} for work items, {formatShortId(invoiceIdPrefix || 'INV', 1)} for invoices.
+          </p>
+          <label>
+            Currency
+            <select value={currencyCode} onChange={(event) => setCurrencyCode(event.target.value)}>
+              {currencyCodes.map((code) => <option value={code} key={code}>{code}</option>)}
+            </select>
           </label>
           <div className="card-actions">
             <button type="submit" className="primary-button" disabled={!hasChanges || isSaving}>{isSaving ? 'Saving…' : 'Save changes'}</button>
@@ -1258,6 +1321,9 @@ function BulkAddUsersForm({
             moduleAccess: profileToModules(row.profile),
             organizationId: currentUser.organizationId,
             organizationName: currentUser.organizationName,
+            workItemIdPrefix: currentUser.workItemIdPrefix,
+            invoiceIdPrefix: currentUser.invoiceIdPrefix,
+            currencyCode: currentUser.currencyCode,
             active: true,
             createdAt: stamp,
             createdBy: currentUser.name,
@@ -2026,6 +2092,7 @@ function NewInvoiceForm({
   pushToast: (message: ReactNode, tone?: ToastTone) => void;
   onDone: () => void;
 }) {
+  const currencyFormatter = useCurrencyFormatter();
   const [invoiceDraft, setInvoiceDraft] = useState<InvoiceDraft>(() => blankInvoiceDraft(state.workItems[0]));
   const [isSubmitting, setIsSubmitting] = useState(false);
   const selectedWorkItem = state.workItems.find((item) => item.id === invoiceDraft.workItemId);
@@ -2196,6 +2263,8 @@ function WorkItemsSection({
   notifyCustomerNow: DeskActions['notifyCustomerNow'];
   pushToast: (message: ReactNode, tone?: ToastTone) => void;
 }) {
+  const currencyFormatter = useCurrencyFormatter();
+  const { workItemIdPrefix } = useOrgDisplaySettings();
   const [selectedId, setSelectedId] = useState(initialSelectedId ?? '');
   const [isCreating, setIsCreating] = useState(false);
   const title = subView === 'walkins' ? 'Walk-in requests' : 'All work items';
@@ -2262,7 +2331,7 @@ function WorkItemsSection({
   };
 
   const columns: DataGridColumn<WorkItem>[] = [
-    ...workItemGridColumns,
+    ...workItemGridColumns(currencyFormatter, workItemIdPrefix),
     {
       key: 'actions',
       label: 'Actions',
@@ -2336,13 +2405,17 @@ function WorkItemsSection({
 
 function KanbanBoard({
   workItems,
+  technicians,
   updateWorkItem,
   pushToast,
 }: {
   workItems: WorkItem[];
+  technicians: Technician[];
   updateWorkItem: DeskActions['updateWorkItem'];
   pushToast: (message: ReactNode, tone?: ToastTone) => void;
 }) {
+  const { workItemIdPrefix } = useOrgDisplaySettings();
+  const [detailItem, setDetailItem] = useState<WorkItem | null>(null);
   const columns = statusFlow;
   const advance = async (item: WorkItem) => {
     const next = getNextStatuses(item.status)[1];
@@ -2372,8 +2445,10 @@ function KanbanBoard({
             <h4>{column} <span>{items.length}</span></h4>
             {items.map((item) => (
               <article className="kanban-card" key={item.id}>
-                <strong>{item.deviceModel}</strong>
-                <span>{item.id} · {item.customerName}</span>
+                <button type="button" className="kanban-card-title" onClick={() => setDetailItem(item)}>
+                  <strong>{item.deviceModel}</strong>
+                </button>
+                <span>{formatShortId(workItemIdPrefix, item.sequenceNumber)} · {item.customerName}</span>
                 {getNextStatuses(item.status)[1] && (
                   <button type="button" className="secondary-dark-button" onClick={() => void advance(item)}>
                     Advance to {getNextStatuses(item.status)[1]}
@@ -2385,6 +2460,12 @@ function KanbanBoard({
           </div>
         );
       })}
+
+      {detailItem && (
+        <Modal title={formatShortId(workItemIdPrefix, detailItem.sequenceNumber)} onClose={() => setDetailItem(null)}>
+          <WorkItemCard item={detailItem} technicians={technicians} />
+        </Modal>
+      )}
     </div>
   );
 }
@@ -2443,6 +2524,7 @@ function MyJobsPanel({
 }
 
 function TechnicianWorkItem({ item, parts, technicians, updateWorkItem, adjustInventory, pushToast }: { item: WorkItem; parts: InventoryPart[]; technicians: Technician[]; updateWorkItem: DeskActions['updateWorkItem']; adjustInventory: DeskActions['adjustInventory']; pushToast: (message: ReactNode, tone?: ToastTone) => void }) {
+  const currencyFormatter = useCurrencyFormatter();
   const [analysis, setAnalysis] = useState(item.analysis);
   const [requiredChanges, setRequiredChanges] = useState(item.requiredChanges);
   const [laborEstimate, setLaborEstimate] = useState(String(item.laborEstimate));
@@ -2524,6 +2606,7 @@ function RepairsPanel({
   approveEstimate: DeskActions['approveEstimate'];
   pushToast: (message: ReactNode, tone?: ToastTone) => void;
 }) {
+  const currencyFormatter = useCurrencyFormatter();
   const [selectedId, setSelectedId] = useState('');
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const customerItems = state.workItems.filter((item) => selectedCustomerId === 'all' || item.customerId === selectedCustomerId);
@@ -2595,6 +2678,7 @@ function RepairsPanel({
 }
 
 function ServiceCatalog({ selectedDeviceType, setSelectedDeviceType, visibleCategories }: { selectedDeviceType: DeviceType | 'All'; setSelectedDeviceType: (value: DeviceType | 'All') => void; visibleCategories: typeof serviceCategories }) {
+  const currencyFormatter = useCurrencyFormatter();
   return (
     <section className="creator-panel service-catalog-panel">
       <div className="creator-panel-header">
@@ -2622,10 +2706,12 @@ function ServiceCatalog({ selectedDeviceType, setSelectedDeviceType, visibleCate
 }
 
 function WorkItemCard({ item, technicians, children }: { item: WorkItem; technicians: Technician[]; children?: ReactNode }) {
+  const currencyFormatter = useCurrencyFormatter();
+  const { workItemIdPrefix } = useOrgDisplaySettings();
   const technician = technicians.find((tech) => tech.id === item.assignedTechnicianId);
   return (
     <article className="workitem-summary">
-      <div className="ticket-header"><strong>{item.id}</strong><span className={`status ${item.status.toLowerCase().replaceAll(' ', '-')}`}>{item.status}</span></div>
+      <div className="ticket-header"><strong>{formatShortId(workItemIdPrefix, item.sequenceNumber)}</strong><span className={`status ${item.status.toLowerCase().replaceAll(' ', '-')}`}>{item.status}</span></div>
       <h3>{item.deviceModel}</h3>
       <p>{item.issueSummary}</p>
       <dl>
@@ -2743,6 +2829,7 @@ function InventoryReport({
   currentUser: AuthUser;
   pushToast: (message: ReactNode, tone?: ToastTone) => void;
 }) {
+  const currencyFormatter = useCurrencyFormatter();
   const [editingSku, setEditingSku] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [adjustingSku, setAdjustingSku] = useState<string | null>(null);
@@ -2888,6 +2975,7 @@ function InventoryView({
   adjustInventory: DeskActions['adjustInventory'];
   pushToast: (message: ReactNode, tone?: ToastTone) => void;
 }) {
+  const currencyFormatter = useCurrencyFormatter();
   const adjust = (sku: string, delta: number) => {
     adjustInventory(sku, delta).catch((error: unknown) => {
       pushToast(error instanceof Error ? error.message : 'Unable to adjust stock.', 'error');
@@ -2972,6 +3060,8 @@ function InvoiceList({
   pushToast: (message: ReactNode, tone?: ToastTone) => void;
   onAddNew: () => void;
 }) {
+  const currencyFormatter = useCurrencyFormatter();
+  const { invoiceIdPrefix } = useOrgDisplaySettings();
   const [payingId, setPayingId] = useState<string | null>(null);
   const payingInvoice = payingId ? invoices.find((invoice) => invoice.id === payingId) : undefined;
 
@@ -3025,7 +3115,14 @@ function InvoiceList({
   };
 
   const columns: DataGridColumn<Invoice>[] = [
-    { key: 'id', label: 'Invoice', render: (invoice) => <strong>{invoice.id}</strong>, sortValue: (invoice) => invoice.id, searchValue: (invoice) => invoice.id },
+    {
+      key: 'shortId',
+      label: 'Invoice #',
+      render: (invoice) => <strong>{formatShortId(invoiceIdPrefix, invoice.sequenceNumber)}</strong>,
+      sortValue: (invoice) => invoice.sequenceNumber,
+      searchValue: (invoice) => formatShortId(invoiceIdPrefix, invoice.sequenceNumber),
+    },
+    { key: 'id', label: 'Invoice ID', render: (invoice) => invoice.id, sortValue: (invoice) => invoice.id, searchValue: (invoice) => invoice.id, defaultHidden: true },
     { key: 'customer', label: 'Customer', render: (invoice) => invoice.customerName, sortValue: (invoice) => invoice.customerName, searchValue: (invoice) => invoice.customerName },
     { key: 'workItem', label: 'Work item', render: (invoice) => invoice.workItemId, sortValue: (invoice) => invoice.workItemId, searchValue: (invoice) => invoice.workItemId },
     { key: 'issued', label: 'Issued', render: (invoice) => invoice.issuedAt, sortValue: (invoice) => invoice.issuedAt },
@@ -3471,7 +3568,7 @@ function AdjustStockModal({
 function CreatorRecordBrowser({
   title,
   records,
-  columns = workItemGridColumns,
+  columns,
   selected,
   setSelectedId,
   detail,
@@ -3495,6 +3592,10 @@ function CreatorRecordBrowser({
   onBulkEditApply?: (rows: WorkItem[], patch: Partial<WorkItem>) => void;
   onBack: () => void;
 }) {
+  const currencyFormatter = useCurrencyFormatter();
+  const { workItemIdPrefix } = useOrgDisplaySettings();
+  const resolvedColumns = columns ?? workItemGridColumns(currencyFormatter, workItemIdPrefix);
+
   if (selected) {
     return (
       <div className="record-detail-screen">
@@ -3510,7 +3611,7 @@ function CreatorRecordBrowser({
   return (
     <DataGrid
       title={title}
-      columns={columns}
+      columns={resolvedColumns}
       rows={records}
       onRowClick={(item) => setSelectedId(item.id)}
       onAddNew={onAddNew}
@@ -3918,9 +4019,16 @@ function EmptyState({ title, body }: { title: string; body: string }) {
   return <div className="empty-state"><strong>{title}</strong><span>{body}</span></div>;
 }
 
-const workItemGridColumns: DataGridColumn<WorkItem>[] = [
+const workItemGridColumns = (currencyFormatter: Intl.NumberFormat, workItemIdPrefix: string): DataGridColumn<WorkItem>[] => [
   { key: 'device', label: 'Device', render: (item) => <strong>{item.deviceModel}</strong>, sortValue: (item) => item.deviceModel, searchValue: (item) => item.deviceModel },
-  { key: 'id', label: 'ID', render: (item) => item.id, sortValue: (item) => item.id, searchValue: (item) => item.id },
+  {
+    key: 'shortId',
+    label: 'Work item #',
+    render: (item) => formatShortId(workItemIdPrefix, item.sequenceNumber),
+    sortValue: (item) => item.sequenceNumber,
+    searchValue: (item) => formatShortId(workItemIdPrefix, item.sequenceNumber),
+  },
+  { key: 'id', label: 'Work item ID', render: (item) => item.id, sortValue: (item) => item.id, searchValue: (item) => item.id, defaultHidden: true },
   { key: 'customer', label: 'Customer', render: (item) => item.customerName, sortValue: (item) => item.customerName, searchValue: (item) => item.customerName },
   { key: 'status', label: 'Status', render: (item) => <span className={`status ${item.status.toLowerCase().replaceAll(' ', '-')}`}>{item.status}</span>, sortValue: (item) => item.status, searchValue: (item) => item.status },
   { key: 'estimate', label: 'Estimate', render: (item) => currencyFormatter.format(item.estimatedPrice), sortValue: (item) => item.estimatedPrice },

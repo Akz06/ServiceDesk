@@ -9,6 +9,7 @@ import type {
   InvoicePaymentDraft,
   InvoiceStatus,
   ManagedUser,
+  OrganizationSettingsPatch,
   OrganizationSignupDraft,
   SavedReportDraft,
   ServiceDeskState,
@@ -98,7 +99,7 @@ const requestState = (path: string, init?: RequestInit) => requestJson<ServiceDe
 export const authApi = {
   login: (email: string, password: string) => requestJson<AuthResponse>('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
   signup: (draft: OrganizationSignupDraft) => requestJson<AuthResponse>('/api/organizations', { method: 'POST', body: JSON.stringify(draft) }),
-  updateOrganization: (name: string) => requestJson<{ user: AuthUser }>('/api/organization', { method: 'PATCH', body: JSON.stringify({ name }) }),
+  updateOrganization: (patch: OrganizationSettingsPatch) => requestJson<{ user: AuthUser }>('/api/organization', { method: 'PATCH', body: JSON.stringify(patch) }),
   me: () => requestJson<{ user: AuthUser }>('/api/auth/me'),
   logout: () => requestJson<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
 };

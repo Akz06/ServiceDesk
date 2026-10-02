@@ -421,6 +421,9 @@ dd { margin: 3px 0 0; font-weight: 650; color: var(--text-strong); font-family: 
 .kanban-card strong { color: var(--text-strong); font-size: var(--font-sm); }
 .kanban-card span { color: var(--muted); font-size: var(--font-xs); }
 .kanban-card button { width: 100%; }
+.kanban-card-title { background: none; border: 0; padding: 0; margin: 0; text-align: left; }
+.kanban-card-title strong { text-decoration: underline; text-decoration-color: transparent; transition: text-decoration-color .1s ease-out; }
+.kanban-card-title:hover strong { text-decoration-color: currentColor; }
 
 .cost-breakdown { display: flex; gap: 10px; flex-wrap: wrap; color: var(--muted-strong); font-size: var(--font-sm); margin: 6px 0; }
 .cost-breakdown span strong { color: var(--text-strong); font-family: var(--font-mono); }

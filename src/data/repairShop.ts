@@ -83,6 +83,7 @@ export const initialCustomers: Customer[] = [
 export const initialWorkItems: WorkItem[] = [
   {
     id: 'WI-1024',
+    sequenceNumber: 1,
     customerId: 'CUST-2001',
     customerName: 'Maya Patel',
     customerPhone: '+1 555 0101',
@@ -116,6 +117,7 @@ export const initialWorkItems: WorkItem[] = [
   },
   {
     id: 'WI-1025',
+    sequenceNumber: 2,
     customerId: 'CUST-2002',
     customerName: 'Chris Wong',
     customerPhone: '+1 555 0102',
@@ -149,6 +151,7 @@ export const initialWorkItems: WorkItem[] = [
   },
   {
     id: 'WI-1026',
+    sequenceNumber: 3,
     customerId: 'CUST-2003',
     customerName: 'Olivia Smith',
     customerPhone: '+1 555 0103',
@@ -194,6 +197,7 @@ export const inventoryParts: InventoryPart[] = [
 export const initialInvoices: Invoice[] = [
   {
     id: 'INV-5001',
+    sequenceNumber: 1,
     workItemId: 'WI-1025',
     customerId: 'CUST-2002',
     customerName: 'Chris Wong',

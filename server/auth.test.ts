@@ -31,6 +31,9 @@ const platformAdminActor: AuthUser = {
   moduleAccess: ['admin'],
   organizationId: 'org-owner',
   organizationName: 'Akz Apps',
+  workItemIdPrefix: 'WI',
+  invoiceIdPrefix: 'INV',
+  currencyCode: 'USD',
   isPlatformAdmin: true,
 };
 

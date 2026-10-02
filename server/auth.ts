@@ -8,6 +8,7 @@ import type {
   BulkUserRow,
   ManagedUser,
   ModuleId,
+  OrganizationSettingsPatch,
   OrganizationSignupDraft,
   PlatformEvent,
   PlatformOrganizationSummary,
@@ -25,6 +26,9 @@ interface UserRow {
   id: string;
   organization_id: string;
   organization_name: string;
+  work_item_id_prefix: string;
+  invoice_id_prefix: string;
+  currency_code: string;
   name: string;
   email: string;
   role: UserRole;
@@ -72,7 +76,10 @@ class AuthError extends Error {
 }
 
 function toAuthUser(
-  row: Pick<UserRow, 'id' | 'name' | 'email' | 'role' | 'profile' | 'organization_id' | 'organization_name'> &
+  row: Pick<
+    UserRow,
+    'id' | 'name' | 'email' | 'role' | 'profile' | 'organization_id' | 'organization_name' | 'work_item_id_prefix' | 'invoice_id_prefix' | 'currency_code'
+  > &
     Partial<Pick<UserRow, 'is_platform_admin'>>,
 ): AuthUser {
   return {
@@ -84,6 +91,9 @@ function toAuthUser(
     moduleAccess: profileModuleAccess[row.profile],
     organizationId: row.organization_id,
     organizationName: row.organization_name,
+    workItemIdPrefix: row.work_item_id_prefix,
+    invoiceIdPrefix: row.invoice_id_prefix,
+    currencyCode: row.currency_code,
     isPlatformAdmin: Boolean(row.is_platform_admin),
   };
 }
@@ -244,7 +254,8 @@ export async function loginWithPassword(emailInput: string, password: string): P
   }
 
   const result = await query<UserRow>(
-    `SELECT users.*, organizations.name AS organization_name
+    `SELECT users.*, organizations.name AS organization_name,
+     organizations.work_item_id_prefix, organizations.invoice_id_prefix, organizations.currency_code
      FROM users
      JOIN organizations ON organizations.id = users.organization_id
      WHERE users.email = $1 AND users.active = TRUE`,
@@ -272,7 +283,8 @@ export async function getUserForToken(token: string): Promise<AuthUser | null> {
   }
 
   const result = await query<UserRow>(
-    `SELECT users.*, organizations.name AS organization_name
+    `SELECT users.*, organizations.name AS organization_name,
+     organizations.work_item_id_prefix, organizations.invoice_id_prefix, organizations.currency_code
      FROM user_sessions
      JOIN users ON users.id = user_sessions.user_id
      JOIN organizations ON organizations.id = users.organization_id
@@ -342,7 +354,8 @@ export async function createOrganizationWithAdmin(input: OrganizationSignupDraft
     );
 
     const result = await client.query<UserRow>(
-      `SELECT users.*, organizations.name AS organization_name
+      `SELECT users.*, organizations.name AS organization_name,
+     organizations.work_item_id_prefix, organizations.invoice_id_prefix, organizations.currency_code
        FROM users
        JOIN organizations ON organizations.id = users.organization_id
        WHERE users.id = $1`,
@@ -415,7 +428,8 @@ export async function listOrganizationUsersForPlatform(organizationId: string): 
 
 export async function impersonateUser(actor: AuthUser, targetUserId: string): Promise<AuthResponse> {
   const result = await query<UserRow>(
-    `SELECT users.*, organizations.name AS organization_name
+    `SELECT users.*, organizations.name AS organization_name,
+     organizations.work_item_id_prefix, organizations.invoice_id_prefix, organizations.currency_code
      FROM users
      JOIN organizations ON organizations.id = users.organization_id
      WHERE users.id = $1 AND users.active = TRUE`,
@@ -460,19 +474,55 @@ export async function listPlatformEvents(limit: number): Promise<PlatformEvent[]
   }));
 }
 
-export async function updateOrganizationName(organizationId: string, userId: string, name: string): Promise<AuthUser> {
-  const trimmed = name.trim();
-  if (trimmed.length < 2) {
-    throw new AuthError('Organization name must be at least 2 characters.');
+export async function updateOrganizationSettings(organizationId: string, userId: string, patch: OrganizationSettingsPatch): Promise<AuthUser> {
+  const sets: string[] = [];
+  const values: unknown[] = [organizationId];
+
+  if (patch.name !== undefined) {
+    const trimmed = patch.name.trim();
+    if (trimmed.length < 2) {
+      throw new AuthError('Organization name must be at least 2 characters.');
+    }
+    values.push(trimmed);
+    sets.push(`name = $${values.length}`);
   }
 
-  const result = await query('UPDATE organizations SET name = $2 WHERE id = $1', [organizationId, trimmed]);
-  if (result.rowCount === 0) {
-    throw new AuthError('Organization not found.', 404);
+  if (patch.workItemIdPrefix !== undefined) {
+    const trimmed = patch.workItemIdPrefix.trim().toUpperCase();
+    if (!/^[A-Z0-9]{1,8}$/.test(trimmed)) {
+      throw new AuthError('Work item ID prefix must be 1-8 letters or numbers.');
+    }
+    values.push(trimmed);
+    sets.push(`work_item_id_prefix = $${values.length}`);
+  }
+
+  if (patch.invoiceIdPrefix !== undefined) {
+    const trimmed = patch.invoiceIdPrefix.trim().toUpperCase();
+    if (!/^[A-Z0-9]{1,8}$/.test(trimmed)) {
+      throw new AuthError('Invoice ID prefix must be 1-8 letters or numbers.');
+    }
+    values.push(trimmed);
+    sets.push(`invoice_id_prefix = $${values.length}`);
+  }
+
+  if (patch.currencyCode !== undefined) {
+    if (!/^[A-Z]{3}$/.test(patch.currencyCode)) {
+      throw new AuthError('Currency code must be a 3-letter code.');
+    }
+    values.push(patch.currencyCode);
+    sets.push(`currency_code = $${values.length}`);
+  }
+
+  if (sets.length > 0) {
+    const result = await query(`UPDATE organizations SET ${sets.join(', ')} WHERE id = $1`, values);
+    if (result.rowCount === 0) {
+      throw new AuthError('Organization not found.', 404);
+    }
   }
 
   const userResult = await query<UserRow>(
-    `SELECT users.*, organizations.name AS organization_name
+    `SELECT users.*, organizations.name AS organization_name,
+     organizations.work_item_id_prefix, organizations.invoice_id_prefix, organizations.currency_code
      FROM users
      JOIN organizations ON organizations.id = users.organization_id
      WHERE users.id = $1`,
@@ -529,7 +579,8 @@ export function canAccessModule(user: AuthUser, moduleId: ModuleId) {
 
 export async function listUsers(organizationId: string): Promise<ManagedUser[]> {
   const result = await query<UserRow>(
-    `SELECT users.*, organizations.name AS organization_name
+    `SELECT users.*, organizations.name AS organization_name,
+     organizations.work_item_id_prefix, organizations.invoice_id_prefix, organizations.currency_code
      FROM users
      JOIN organizations ON organizations.id = users.organization_id
      WHERE users.organization_id = $1

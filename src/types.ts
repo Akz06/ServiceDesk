@@ -81,6 +81,7 @@ export interface WorkItemUpdate {
 
 export interface WorkItem {
   id: string;
+  sequenceNumber: number;
   customerId: string;
   customerName: string;
   customerPhone: string;
@@ -124,6 +125,7 @@ export interface WorkItemDraft {
 
 export interface Invoice extends AuditFields {
   id: string;
+  sequenceNumber: number;
   workItemId: string;
   customerId: string;
   customerName: string;
@@ -213,6 +215,9 @@ export interface AuthUser {
   moduleAccess: ModuleId[];
   organizationId: string;
   organizationName: string;
+  workItemIdPrefix: string;
+  invoiceIdPrefix: string;
+  currencyCode: string;
   isPlatformAdmin?: boolean;
 }
 
@@ -242,6 +247,13 @@ export interface OrganizationSignupDraft {
   adminName: string;
   adminEmail: string;
   adminPassword: string;
+}
+
+export interface OrganizationSettingsPatch {
+  name?: string;
+  workItemIdPrefix?: string;
+  invoiceIdPrefix?: string;
+  currencyCode?: string;
 }
 
 export interface BulkUserRow {

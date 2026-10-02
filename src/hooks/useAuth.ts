@@ -1,15 +1,17 @@
 import { useCallback, useState } from 'react';
-import type { AuthUser, OrganizationSignupDraft } from '../types';
+import type { AuthUser, OrganizationSettingsPatch, OrganizationSignupDraft } from '../types';
 import { authApi, clearAuthSession, getStoredAuthToken, getStoredAuthUser, isApiPersistenceEnabled, storeAuthSession } from '../services/apiClient';
 
 const localDemoOrganizationId = 'local-demo-org';
 const localDemoOrganizationName = 'Demo Organization';
 
+const localDemoOrgDefaults = { workItemIdPrefix: 'WI', invoiceIdPrefix: 'INV', currencyCode: 'USD' };
+
 const localDemoUsers: Array<{ email: string; password: string; user: AuthUser }> = [
-  { email: 'admin@servicedesk.local', password: 'Admin@12345', user: { id: 'user-admin', name: 'Admin User', email: 'admin@servicedesk.local', role: 'Admin', profile: 'admin', moduleAccess: ['admin', 'agent', 'technician', 'customer'], organizationId: localDemoOrganizationId, organizationName: localDemoOrganizationName } },
-  { email: 'agent@servicedesk.local', password: 'Agent@12345', user: { id: 'user-agent', name: 'Agent User', email: 'agent@servicedesk.local', role: 'Agent', profile: 'agent', moduleAccess: ['agent'], organizationId: localDemoOrganizationId, organizationName: localDemoOrganizationName } },
-  { email: 'tech@servicedesk.local', password: 'Tech@12345', user: { id: 'user-technician', name: 'Technician User', email: 'tech@servicedesk.local', role: 'Technician', profile: 'technician', moduleAccess: ['technician'], organizationId: localDemoOrganizationId, organizationName: localDemoOrganizationName } },
-  { email: 'customer@servicedesk.local', password: 'Customer@12345', user: { id: 'user-customer', name: 'Customer User', email: 'customer@servicedesk.local', role: 'Customer', profile: 'customer', moduleAccess: ['customer'], organizationId: localDemoOrganizationId, organizationName: localDemoOrganizationName } },
+  { email: 'admin@servicedesk.local', password: 'Admin@12345', user: { id: 'user-admin', name: 'Admin User', email: 'admin@servicedesk.local', role: 'Admin', profile: 'admin', moduleAccess: ['admin', 'agent', 'technician', 'customer'], organizationId: localDemoOrganizationId, organizationName: localDemoOrganizationName, ...localDemoOrgDefaults } },
+  { email: 'agent@servicedesk.local', password: 'Agent@12345', user: { id: 'user-agent', name: 'Agent User', email: 'agent@servicedesk.local', role: 'Agent', profile: 'agent', moduleAccess: ['agent'], organizationId: localDemoOrganizationId, organizationName: localDemoOrganizationName, ...localDemoOrgDefaults } },
+  { email: 'tech@servicedesk.local', password: 'Tech@12345', user: { id: 'user-technician', name: 'Technician User', email: 'tech@servicedesk.local', role: 'Technician', profile: 'technician', moduleAccess: ['technician'], organizationId: localDemoOrganizationId, organizationName: localDemoOrganizationName, ...localDemoOrgDefaults } },
+  { email: 'customer@servicedesk.local', password: 'Customer@12345', user: { id: 'user-customer', name: 'Customer User', email: 'customer@servicedesk.local', role: 'Customer', profile: 'customer', moduleAccess: ['customer'], organizationId: localDemoOrganizationId, organizationName: localDemoOrganizationName, ...localDemoOrgDefaults } },
 ];
 
 export function useAuth() {
@@ -69,6 +71,7 @@ export function useAuth() {
         moduleAccess: ['admin', 'agent', 'technician', 'customer'],
         organizationId: `local-org-${Date.now()}`,
         organizationName: draft.organizationName.trim(),
+        ...localDemoOrgDefaults,
       };
       storeAuthSession({ token: 'local-demo-token', user: newUser });
       setUser(newUser);
@@ -82,9 +85,9 @@ export function useAuth() {
     }
   }, []);
 
-  const renameOrganization = useCallback(async (name: string) => {
+  const updateOrganization = useCallback(async (patch: OrganizationSettingsPatch) => {
     if (isApiPersistenceEnabled) {
-      const { user: updated } = await authApi.updateOrganization(name);
+      const { user: updated } = await authApi.updateOrganization(patch);
       storeAuthSession({ token: getStoredAuthToken() ?? '', user: updated });
       setUser(updated);
       return updated;
@@ -93,7 +96,13 @@ export function useAuth() {
     if (!user) {
       throw new Error('Not signed in.');
     }
-    const updated: AuthUser = { ...user, organizationName: name.trim() };
+    const updated: AuthUser = {
+      ...user,
+      ...(patch.name !== undefined ? { organizationName: patch.name.trim() } : {}),
+      ...(patch.workItemIdPrefix !== undefined ? { workItemIdPrefix: patch.workItemIdPrefix.trim() } : {}),
+      ...(patch.invoiceIdPrefix !== undefined ? { invoiceIdPrefix: patch.invoiceIdPrefix.trim() } : {}),
+      ...(patch.currencyCode !== undefined ? { currencyCode: patch.currencyCode } : {}),
+    };
     storeAuthSession({ token: 'local-demo-token', user: updated });
     setUser(updated);
     return updated;
@@ -111,5 +120,5 @@ export function useAuth() {
     setUser(null);
   }, []);
 
-  return { user, login, signup, renameOrganization, logout, isAuthenticating, authError };
+  return { user, login, signup, updateOrganization, logout, isAuthenticating, authError };
 }
