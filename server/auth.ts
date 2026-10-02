@@ -9,6 +9,9 @@ import type {
   ManagedUser,
   ModuleId,
   OrganizationSignupDraft,
+  PlatformEvent,
+  PlatformOrganizationSummary,
+  PlatformUserSummary,
   UserDraft,
   UserRole,
 } from '../src/types';
@@ -33,6 +36,7 @@ interface UserRow {
   created_by: string;
   updated_at: string;
   updated_by: string;
+  is_platform_admin: boolean;
 }
 
 const profileModuleAccess: Record<AuthProfile, ModuleId[]> = {
@@ -67,7 +71,10 @@ class AuthError extends Error {
   }
 }
 
-function toAuthUser(row: Pick<UserRow, 'id' | 'name' | 'email' | 'role' | 'profile' | 'organization_id' | 'organization_name'>): AuthUser {
+function toAuthUser(
+  row: Pick<UserRow, 'id' | 'name' | 'email' | 'role' | 'profile' | 'organization_id' | 'organization_name'> &
+    Partial<Pick<UserRow, 'is_platform_admin'>>,
+): AuthUser {
   return {
     id: row.id,
     name: row.name,
@@ -77,6 +84,7 @@ function toAuthUser(row: Pick<UserRow, 'id' | 'name' | 'email' | 'role' | 'profi
     moduleAccess: profileModuleAccess[row.profile],
     organizationId: row.organization_id,
     organizationName: row.organization_name,
+    isPlatformAdmin: Boolean(row.is_platform_admin),
   };
 }
 
@@ -87,6 +95,34 @@ export function slugify(value: string): string {
 
 export function isUniqueViolation(error: unknown): boolean {
   return Boolean(error && typeof error === 'object' && 'code' in error && (error as { code?: string }).code === '23505');
+}
+
+// Best-effort operational log for the platform admin console — never lets a logging
+// failure break the request it's describing.
+export async function logPlatformEvent(eventType: string, details: {
+  organizationId?: string | null;
+  actorUserId?: string | null;
+  actorEmail?: string | null;
+  targetUserId?: string | null;
+  message: string;
+}) {
+  try {
+    await query(
+      `INSERT INTO platform_events (id, event_type, organization_id, actor_user_id, actor_email, target_user_id, message)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        `evt-${randomBytes(8).toString('hex')}`,
+        eventType,
+        details.organizationId ?? null,
+        details.actorUserId ?? null,
+        details.actorEmail ?? null,
+        details.targetUserId ?? null,
+        details.message,
+      ],
+    );
+  } catch (error) {
+    console.error('Failed to record platform event', error);
+  }
 }
 
 const formatStamp = (value: string) => new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
@@ -199,10 +235,17 @@ export async function loginWithPassword(emailInput: string, password: string): P
   );
   const row = result.rows[0];
   if (!row || !(await verifyPassword(password, row.password_salt, row.password_hash))) {
+    await logPlatformEvent('login_failed', { actorEmail: email, message: `Failed login attempt for ${email}.` });
     throw new AuthError('Invalid email or password.', 401);
   }
 
   const { token } = await issueSession(row.id);
+  await logPlatformEvent('login_succeeded', {
+    organizationId: row.organization_id,
+    actorUserId: row.id,
+    actorEmail: row.email,
+    message: `${row.email} logged in.`,
+  });
   return { token, user: toAuthUser(row) };
 }
 
@@ -292,7 +335,112 @@ export async function createOrganizationWithAdmin(input: OrganizationSignupDraft
   });
 
   const { token } = await issueSession(row.id);
+  await logPlatformEvent('organization_created', {
+    organizationId: row.organization_id,
+    actorUserId: row.id,
+    actorEmail: row.email,
+    message: `Organization "${row.organization_name}" created by ${row.email}.`,
+  });
   return { token, user: toAuthUser(row) };
+}
+
+export async function listOrganizationsForPlatform(): Promise<PlatformOrganizationSummary[]> {
+  const result = await query<{
+    id: string;
+    name: string;
+    slug: string;
+    created_at: string;
+    user_count: string;
+    customer_count: string;
+    work_item_count: string;
+    invoice_count: string;
+  }>(
+    `SELECT
+       organizations.id,
+       organizations.name,
+       organizations.slug,
+       organizations.created_at,
+       (SELECT COUNT(*) FROM users WHERE users.organization_id = organizations.id)::text AS user_count,
+       (SELECT COUNT(*) FROM customers WHERE customers.organization_id = organizations.id)::text AS customer_count,
+       (SELECT COUNT(*) FROM work_items WHERE work_items.organization_id = organizations.id)::text AS work_item_count,
+       (SELECT COUNT(*) FROM invoices WHERE invoices.organization_id = organizations.id)::text AS invoice_count
+     FROM organizations
+     ORDER BY organizations.created_at DESC`,
+  );
+
+  return result.rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    slug: row.slug,
+    createdAt: formatStamp(row.created_at),
+    userCount: Number(row.user_count),
+    customerCount: Number(row.customer_count),
+    workItemCount: Number(row.work_item_count),
+    invoiceCount: Number(row.invoice_count),
+  }));
+}
+
+export async function listOrganizationUsersForPlatform(organizationId: string): Promise<PlatformUserSummary[]> {
+  const result = await query<Pick<UserRow, 'id' | 'name' | 'email' | 'role' | 'profile' | 'active'>>(
+    'SELECT id, name, email, role, profile, active FROM users WHERE organization_id = $1 ORDER BY name',
+    [organizationId],
+  );
+
+  return result.rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    role: row.role,
+    profile: row.profile,
+    active: row.active,
+  }));
+}
+
+export async function impersonateUser(actor: AuthUser, targetUserId: string): Promise<AuthResponse> {
+  const result = await query<UserRow>(
+    `SELECT users.*, organizations.name AS organization_name
+     FROM users
+     JOIN organizations ON organizations.id = users.organization_id
+     WHERE users.id = $1 AND users.active = TRUE`,
+    [targetUserId],
+  );
+  const row = result.rows[0];
+  if (!row) {
+    throw new AuthError('That user could not be found or is inactive.', 404);
+  }
+
+  const { token } = await issueSession(row.id);
+  await logPlatformEvent('impersonation_started', {
+    organizationId: row.organization_id,
+    actorUserId: actor.id,
+    actorEmail: actor.email,
+    targetUserId: row.id,
+    message: `${actor.email} started impersonating ${row.email} (${row.organization_name}).`,
+  });
+  return { token, user: toAuthUser(row) };
+}
+
+export async function listPlatformEvents(limit: number): Promise<PlatformEvent[]> {
+  const result = await query<{
+    id: string;
+    created_at: string;
+    event_type: string;
+    organization_id: string | null;
+    actor_email: string | null;
+    message: string;
+  }>(
+    'SELECT id, created_at, event_type, organization_id, actor_email, message FROM platform_events ORDER BY created_at DESC LIMIT $1',
+    [limit],
+  );
+
+  return result.rows.map((row) => ({
+    id: row.id,
+    createdAt: formatStamp(row.created_at),
+    eventType: row.event_type,
+    organizationId: row.organization_id,
+    actorEmail: row.actor_email,
+    message: row.message,
+  }));
 }
 
 export async function updateOrganizationName(organizationId: string, userId: string, name: string): Promise<AuthUser> {

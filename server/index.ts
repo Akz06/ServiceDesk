@@ -27,9 +27,14 @@ import {
   createUser,
   deleteUser,
   getUserForToken,
+  impersonateUser,
+  listOrganizationsForPlatform,
+  listOrganizationUsersForPlatform,
+  listPlatformEvents,
   listUsers,
   loginWithPassword,
   logoutToken,
+  logPlatformEvent,
   seedAuthUsersIfEmpty,
   updateOrganizationName,
   updateUser,
@@ -156,6 +161,15 @@ const requireAdmin: express.RequestHandler = (request: AuthenticatedRequest, res
   next();
 };
 
+const requirePlatformAdmin: express.RequestHandler = (request: AuthenticatedRequest, response, next) => {
+  if (!request.user?.isPlatformAdmin) {
+    response.status(403).json({ error: 'Platform admin access required.' });
+    return;
+  }
+
+  next();
+};
+
 app.get('/api/health', (_request, response) => {
   response.json({ ok: true, service: 'service-desk', storage: 'postgres' });
 });
@@ -189,6 +203,23 @@ app.get('/api/auth/me', requireAuth, (request: AuthenticatedRequest, response) =
 app.post('/api/auth/logout', requireAuth, asyncHandler(async (request: AuthenticatedRequest, response) => {
   await logoutToken(String(request.authToken ?? ''));
   response.json({ ok: true });
+}));
+
+app.get('/api/platform/organizations', requireAuth, requirePlatformAdmin, asyncHandler(async (_request, response) => {
+  response.json({ organizations: await listOrganizationsForPlatform() });
+}));
+
+app.get('/api/platform/organizations/:id/users', requireAuth, requirePlatformAdmin, asyncHandler(async (request, response) => {
+  response.json({ users: await listOrganizationUsersForPlatform(String(request.params.id)) });
+}));
+
+app.post('/api/platform/impersonate/:userId', requireAuth, requirePlatformAdmin, asyncHandler(async (request: AuthenticatedRequest, response) => {
+  response.json(await impersonateUser(request.user!, String(request.params.userId)));
+}));
+
+app.get('/api/platform/events', requireAuth, requirePlatformAdmin, asyncHandler(async (request, response) => {
+  const limit = Math.min(Number(request.query.limit) || 100, 500);
+  response.json({ events: await listPlatformEvents(limit) });
 }));
 
 app.get('/api/admin/users', requireAuth, requireAdmin, asyncHandler(async (request: AuthenticatedRequest, response) => {
@@ -420,7 +451,7 @@ app.get(/.*/, (_request, response) => {
   response.sendFile(join(distPath, 'index.html'));
 });
 
-app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
+app.use((error: unknown, request: AuthenticatedRequest, response: express.Response, _next: express.NextFunction) => {
   void _next;
   // AuthError/RepositoryError both carry a numeric `statusCode` and are hand-written with
   // deliberately safe, user-facing messages. Anything else (a raw pg driver error, a bug) is
@@ -429,6 +460,12 @@ app.use((error: unknown, _request: express.Request, response: express.Response, 
   const statusCode = isKnownError ? (error as Error & { statusCode: number }).statusCode : 500;
   if (statusCode >= 500) {
     console.error(error);
+    void logPlatformEvent('server_error', {
+      organizationId: request.user?.organizationId ?? null,
+      actorUserId: request.user?.id ?? null,
+      actorEmail: request.user?.email ?? null,
+      message: `${request.method} ${request.path} — ${error instanceof Error ? error.message : String(error)}`,
+    });
   }
   const message = isKnownError ? (error as Error).message : 'Something went wrong. Please try again.';
   response.status(statusCode).json({ error: message });

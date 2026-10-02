@@ -446,6 +446,13 @@ function Workspace({
     localStorage.setItem('service-desk-sidebar-collapsed', String(sidebarCollapsed));
   }, [sidebarCollapsed]);
 
+  const isImpersonating = sessionStorage.getItem('sd-impersonating') === '1';
+  const stopImpersonating = async () => {
+    sessionStorage.removeItem('sd-impersonating');
+    await onLogout();
+    window.location.href = '/admin';
+  };
+
   const groupId = groupIdFor(activeView);
   const isDashboard = activeView === 'dashboard';
   const meta = sectionMeta[activeView] ?? sectionMeta[groupId] ?? { title: appName, subtitle: '' };
@@ -522,6 +529,13 @@ function Workspace({
             </button>
           </div>
         </header>
+
+        {isImpersonating && (
+          <div className="impersonation-banner" role="alert">
+            <span>Impersonating <strong>{user.name}</strong> ({user.organizationName}) from the platform admin console.</span>
+            <button type="button" onClick={() => void stopImpersonating()}>Stop impersonating</button>
+          </div>
+        )}
 
         <SyncStatus isApiBacked={serviceDesk.isApiBacked} isLoading={serviceDesk.isLoading} error={serviceDesk.error} onRefresh={serviceDesk.refresh} />
 
@@ -691,7 +705,7 @@ function WorkspaceContent(
       )}
 
       {activeView === 'organization' && (
-        <OrganizationPanel currentUser={currentUser} navigate={navigate} onRenameOrganization={onRenameOrganization} pushToast={pushToast} />
+        <OrganizationPanel currentUser={currentUser} navigate={navigate} onRenameOrganization={onRenameOrganization} pushToast={pushToast} reset={reset} />
       )}
 
       {activeView === 'users' && <UsersReport currentUser={currentUser} pushToast={pushToast} />}
@@ -1054,16 +1068,34 @@ function OrganizationPanel({
   navigate,
   onRenameOrganization,
   pushToast,
+  reset,
 }: {
   currentUser: AuthUser;
   navigate: (id: string, recordId?: string) => void;
   onRenameOrganization: (name: string) => Promise<AuthUser>;
   pushToast: (message: ReactNode, tone?: ToastTone) => void;
+  reset: () => Promise<void>;
 }) {
   const [showBulkAdd, setShowBulkAdd] = useState(false);
   const [organizationName, setOrganizationName] = useState(currentUser.organizationName);
   const [lastSyncedName, setLastSyncedName] = useState(currentUser.organizationName);
   const [isSaving, setIsSaving] = useState(false);
+  const [isLoadingSampleData, setIsLoadingSampleData] = useState(false);
+
+  const loadSampleData = async () => {
+    if (!window.confirm('This replaces every customer, technician, work item, invoice, and inventory part in this organization with sample data. Continue?')) {
+      return;
+    }
+    setIsLoadingSampleData(true);
+    try {
+      await reset();
+      pushToast('Sample data loaded.');
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Unable to load sample data.', 'error');
+    } finally {
+      setIsLoadingSampleData(false);
+    }
+  };
 
   if (currentUser.organizationName !== lastSyncedName) {
     setLastSyncedName(currentUser.organizationName);
@@ -1115,6 +1147,21 @@ function OrganizationPanel({
             <button type="submit" className="primary-button" disabled={!hasChanges || isSaving}>{isSaving ? 'Saving…' : 'Save changes'}</button>
           </div>
         </form>
+      </section>
+
+      <section className="creator-panel">
+        <div className="creator-panel-header"><div><p className="eyebrow">Sample data</p><h2>Try it with realistic data</h2></div></div>
+        <div className="view-canvas">
+          <p className="module-subtitle">
+            Load a full set of sample customers, technicians, work items, invoices, and inventory parts into this
+            organization — useful for a demo or for exploring the app. This replaces whatever data is already here.
+          </p>
+          <div className="card-actions">
+            <button type="button" className="secondary-button" onClick={() => void loadSampleData()} disabled={isLoadingSampleData}>
+              {isLoadingSampleData ? 'Loading…' : 'Load sample data'}
+            </button>
+          </div>
+        </div>
       </section>
 
       {showBulkAdd && (

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { UserDraft } from '../src/types';
+import type { AuthUser, UserDraft } from '../src/types';
 
 const queryMock = vi.fn();
 const withTransactionMock = vi.fn();
@@ -19,7 +19,20 @@ const {
   deleteUser,
   updateUser,
   createOrganizationWithAdmin,
+  impersonateUser,
 } = await import('./auth');
+
+const platformAdminActor: AuthUser = {
+  id: 'user-owner',
+  name: 'Owner',
+  email: 'owner@akzapps.in',
+  role: 'Admin',
+  profile: 'admin',
+  moduleAccess: ['admin'],
+  organizationId: 'org-owner',
+  organizationName: 'Akz Apps',
+  isPlatformAdmin: true,
+};
 
 const blankDraft: UserDraft = { name: 'Jane Doe', email: 'jane@example.com', profile: 'agent', password: 'Sup3rSecret1', active: true };
 
@@ -193,5 +206,52 @@ describe('createOrganizationWithAdmin slug retry', () => {
     expect(result.user.organizationName).toBe('Acme Repair Co');
     expect(typeof result.token).toBe('string');
     expect(result.token.length).toBeGreaterThan(0);
+  });
+});
+
+describe('impersonateUser', () => {
+  it('issues a session for an active target user and records who did it', async () => {
+    queryMock.mockImplementation(async (sql: string) => {
+      if (sql.includes('SELECT users.*, organizations.name')) {
+        return {
+          rows: [{
+            id: 'user-target',
+            organization_id: 'org-1',
+            organization_name: 'Acme Repair Co',
+            name: 'Target User',
+            email: 'target@example.com',
+            role: 'Admin',
+            profile: 'admin',
+            active: true,
+          }],
+          rowCount: 1,
+        };
+      }
+      return { rows: [], rowCount: 0 };
+    });
+
+    const result = await impersonateUser(platformAdminActor, 'user-target');
+
+    expect(result.user.email).toBe('target@example.com');
+    expect(typeof result.token).toBe('string');
+    expect(result.token.length).toBeGreaterThan(0);
+
+    const loggedEvent = queryMock.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO platform_events'));
+    expect(loggedEvent).toBeDefined();
+    const params = loggedEvent?.[1] as unknown[];
+    expect(params).toContain('impersonation_started');
+    expect(params).toContain(platformAdminActor.email);
+    expect(params).toContain('user-target');
+  });
+
+  it('refuses to impersonate a user that does not exist or is inactive', async () => {
+    queryMock.mockImplementation(async (sql: string) => {
+      if (sql.includes('SELECT users.*, organizations.name')) {
+        return { rows: [], rowCount: 0 };
+      }
+      return { rows: [], rowCount: 0 };
+    });
+
+    await expect(impersonateUser(platformAdminActor, 'missing-user')).rejects.toThrow(/could not be found/i);
   });
 });

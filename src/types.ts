@@ -213,6 +213,7 @@ export interface AuthUser {
   moduleAccess: ModuleId[];
   organizationId: string;
   organizationName: string;
+  isPlatformAdmin?: boolean;
 }
 
 export interface ManagedUser extends AuthUser {
@@ -247,6 +248,35 @@ export interface BulkUserRow {
   name: string;
   email: string;
   profile: AuthProfile;
+}
+
+export interface PlatformOrganizationSummary {
+  id: string;
+  name: string;
+  slug: string;
+  createdAt: string;
+  userCount: number;
+  customerCount: number;
+  workItemCount: number;
+  invoiceCount: number;
+}
+
+export interface PlatformUserSummary {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  profile: AuthProfile;
+  active: boolean;
+}
+
+export interface PlatformEvent {
+  id: string;
+  createdAt: string;
+  eventType: string;
+  organizationId: string | null;
+  actorEmail: string | null;
+  message: string;
 }
 
 export interface BulkUserCreationResult {
